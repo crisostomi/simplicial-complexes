@@ -1,0 +1,12 @@
+trimesh
+pymesh
+torch==1.8.0
+dill
+seaborn
+torch-scatter -f https://pytorch-geometric.com/whl/torch-1.8.0+cu101.html
+torch-sparse -f https://pytorch-geometric.com/whl/torch-1.8.0+cu101.html
+torch-cluster -f https://pytorch-geometric.com/whl/torch-1.8.0+cu101.html
+torch-spline-conv -f https://pytorch-geometric.com/whl/torch-1.8.0+cu101.html
+torch-geometric
+networkx
+-e .

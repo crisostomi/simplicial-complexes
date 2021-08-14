@@ -18,6 +18,23 @@ def save_dict(dictionary, path):
     np.save(values_path, values)
 
 
+def load_dict(path):
+    keys_path = path + '_keys'
+    values_path = path + '_values.npy'
+
+    dictionary = {}
+
+    with open(keys_path, 'rb') as f:
+        keys = dill.load(f)
+
+    values = np.load(values_path)
+
+    for k, v in zip(keys, values):
+        dictionary[k] = v
+
+    return dictionary
+
+
 def load_mesh_positions_triangles(mesh_name, data_folder):
 
     if mesh_name == 'bob':

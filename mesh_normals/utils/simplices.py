@@ -165,3 +165,43 @@ def build_laplacians(boundaries):
     lower = boundaries[-1].T @ boundaries[-1]
     laplacians.append(coo_matrix(lower))
     return laplacians
+
+
+def create_node_triangle_adj_matrix(nodes, triangles):
+    """
+        nodes: tensor (num_nodes, 3)
+        triangles: tensor (num_triangles, 3)
+    """
+
+    i = np.arange(triangles.shape[0])
+    i = np.concatenate((i, i, i), 0)
+
+    j = triangles.reshape(-1)
+
+    adj = csr_matrix((np.ones_like(j), (i, j)), shape=(triangles.shape[0], nodes.shape[0]))  # FxV sparse matrix
+
+    return torch.tensor(adj.todense(), dtype=torch.float64).to(device)
+
+
+def normalize(L, half_interval=False):
+    """
+        Returns the laplacian normalized by the largest eigenvalue
+    """
+    assert scipy.sparse.isspmatrix(L)
+
+    # L is squared
+    M = L.shape[0]
+    assert M == L.shape[1]
+
+    # take the first eigenvalue of the Laplacian, i.e. the largest
+    largest_eigenvalue = linalg.eigsh(L, k=1, which="LM", return_eigenvectors=False)[0]
+
+    L_normalized = L.copy()
+
+    if half_interval:
+        L_normalized *= 1.0 / largest_eigenvalue
+    else:
+        L_normalized *= 2.0 / largest_eigenvalue
+        L_normalized.setdiag(L_normalized.diagonal(0) - np.ones(M), 0)
+
+    return L_normalized

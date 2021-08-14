@@ -20,12 +20,17 @@ def compute_normal(triangle):
     return N / norm
 
 
-def plot_mesh(positions, triangles, mesh_name):
+def plot_mesh(positions, triangles, mesh_name, colors=None):
     x = positions[:, 0]
     y = positions[:, 1]
     z = positions[:, 2]
 
-    fig = ff.create_trisurf(x=x, y=y, z=z,
-                            simplices=triangles,
-                            title=mesh_name, aspectratio=dict(x=1, y=1, z=0.3))
+    if colors:
+        fig = ff.create_trisurf(x=x, y=y, z=z,
+                                simplices=triangles,
+                                title="True normals", aspectratio=dict(x=1, y=1, z=0.3), color_func=colors)
+    else:
+        fig = ff.create_trisurf(x=x, y=y, z=z,
+                                simplices=triangles,
+                                title=mesh_name, aspectratio=dict(x=1, y=1, z=0.3))
     fig.show()

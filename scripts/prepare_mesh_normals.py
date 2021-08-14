@@ -1,82 +1,59 @@
 # deep learning
 import torch
 import numpy as np
-import torch_geometric
 
 # misc
 import os
-import dill
 
 # ad hoc
 from mesh_normals.utils.meshes import plot_mesh
-from mesh_normals.utils.io import save_dict
+from mesh_normals.utils.io import save_dict, load_mesh_positions_triangles
 from mesh_normals.utils.simplices import create_simplices, create_signals, build_boundaries, build_laplacians
 
-device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+# params
+data_folder = 'data'
 
-PROJECT_HOME = "."
-data_folder = os.path.join(PROJECT_HOME, f'data')
+mesh_name = 'bob'
 
-use_dummy_data = False
-
-meshes = torch_geometric.datasets.FAUST(data_folder)
-mesh = meshes[0]
-mesh_name = 'Faust-subj0-pose0'
-
-triangles = mesh.face.transpose(1, 0)
-positions = mesh.pos
-num_triangles = triangles.shape[0]
-num_vertices = positions.shape[0]
+# mesh loading
+positions, triangles = load_mesh_positions_triangles(mesh_name, data_folder)
+num_triangles, num_vertices = triangles.shape[0], positions.shape[0]
 
 plot_mesh(positions, triangles, mesh_name)
 
-print(positions)
-# Data sorting
-
+# data sorting
 triangles = sorted(triangles, key=lambda tr: (tr[0], tr[1], tr[2]))
 triangles = torch.stack(triangles)
 
-# Adding noise
-
+# adding noise
 sigma = 10
 noisy_positions = np.random.normal(positions, sigma)
 
 
-# Simplices creation
-
+# simplices creation
 simplices = create_simplices(triangles)
 
 
-# Signal creation
-
+# signal creation
 node_signals, triangle_signals = create_signals(triangles, positions)
 noisy_node_signals, _ = create_signals(triangles, noisy_positions)
 
 assert len(triangle_signals) == num_triangles
 
-
-# Incidence matrices and Laplacians creation
-
+# incidence matrices and Laplacians creation
 boundaries = build_boundaries(simplices)
 
 laplacians = build_laplacians(boundaries)
 
+# save
+to_save = {'laplacians': laplacians, 'boundaries': boundaries, 'positions': node_signals,
+                      'noisy_positions': noisy_node_signals, 'original_positions': positions,
+                      'normals': triangle_signals, 'triangles': triangles}
 
-# Save
-prefix = 'dummy_' if use_dummy_data else ''
-laplacian_path = f'{data_folder}/{prefix}laplacians.npy'
-boundaries_path = f'{data_folder}/{prefix}boundaries.npy'
-positions_path = f'{data_folder}/{prefix}positions'
-noisy_positions_path = f'{data_folder}/{prefix}noisy_positions'
-original_positions_path = f'{data_folder}/{prefix}original_positions'
-normals_path = f'{data_folder}/{prefix}normals'
-triangles_path = f'{data_folder}/{prefix}triangles.npy'
-
-np.save(laplacian_path, laplacians)
-np.save(boundaries_path, boundaries)
-np.save(triangles_path, triangles)
-np.save(positions_path, positions)
-
-save_dict(node_signals, positions_path)
-save_dict(triangle_signals, normals_path)
-save_dict(noisy_node_signals, noisy_positions_path)
+for elem_name, elem_data in to_save.items():
+    filename = f'{mesh_name}_{elem_name}'
+    path = os.path.join(data_folder, filename)
+    if isinstance(elem_data, dict):
+        save_dict(elem_data, path)
+    else:
+        np.save(path, elem_data)

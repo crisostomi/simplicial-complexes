@@ -79,20 +79,16 @@ save(papers, edges, graph_full_path)
 
 # 2. Clean and downsample bipartite graph
 
-# Load the bipartite graph into a pandas dataframe
 papers, edges = load_papers_authors_bipartite_graph(graph_full_path)
 
-# Clean the dataset
 papers, edges = clean(papers, edges)
-
-# Downsample
 
 papers, edges = downsample(papers, edges)
 
 print(papers.head(n=3))
 print(edges.head(n=3))
 
-# Map papers and authors to node ids
+# map papers and authors to node ids
 
 papers, authors, edges = add_node_ids(papers, edges)
 
@@ -100,7 +96,7 @@ print(papers.head(n=3))
 print(edges.head(n=3))
 print(authors.head(n=3))
 
-## Build biadjacency matrix
+# build biadjacency matrix
 
 biadjacency = sparse.coo_matrix(
     (
@@ -109,13 +105,10 @@ biadjacency = sparse.coo_matrix(
     )
 )
 
-
-# Save
-
+# save
 save_paper_author_biadj(papers, authors, edges, biadjacency, RAW_GRAPH_FOLD)
 
 # 3. Project bipartite graph
-
 
 bipartite = load_paper_author_biadj(biadjacency_matrix_path)
 
@@ -131,7 +124,7 @@ adjacency = scipy.sparse.load_npz(biadjacency_matrix_path)
 papers_df_path = os.path.join(RAW_GRAPH_FOLD, "papers.csv")
 papers_df = pd.read_csv(papers_df_path, index_col=0)
 
-# Obtain starting node
+# obtain starting node
 
 # shape (num_papers, )
 citations = np.array(papers_df["citations_2019"])
@@ -142,8 +135,6 @@ starting_node = 150250
 COMPLEX_FOLDER_START_NODE = os.path.join(COMPLEX_FOLDER, str(starting_node))
 
 print("The starting node of the random walk has ID {}".format(starting_node))
-
-# Subsample
 
 downsample = subsample_node_x(
     starting_node,
@@ -156,17 +147,11 @@ downsample = subsample_node_x(
 )
 print(downsample.shape)
 
-## Save
-
 np.save(os.path.join(COMPLEX_FOLDER_START_NODE, "downsampled.npy"), downsample)
 
 # 5. Bipartite to complex
 
-# Input
-
 adjacency = sparse.load_npz(biadjacency_matrix_path)
-# shape (num_papers,)
-citations = np.array(papers_df["citations_2019"])
 
 # starting_node = 150250 #Defferard
 downsample_papers = np.load(os.path.join(COMPLEX_FOLDER_START_NODE, "downsampled.npy"))
@@ -182,7 +167,7 @@ num_edges = len(simplices[1])
 num_triangles = len(simplices[2])
 print(f"There are {num_nodes} nodes, {num_edges} edges and {num_triangles} triangles")
 
-## Save
+# save
 
 cochains_path = os.path.join(COMPLEX_FOLDER_START_NODE, f"cochains.npy")
 simplices_path = os.path.join(COMPLEX_FOLDER_START_NODE, f"simplices.npy")
@@ -192,22 +177,14 @@ np.save(simplices_path, simplices)
 
 # 6. Complex to Laplacians
 
-# Input
-
 # starting_node = 150250
 # simplices = np.load(f's2_3_collaboration_complex/{starting_node}_simplices.npy')
 
-# Build boundaries
-
 boundaries = build_boundaries(simplices)
-
-
-# Build Laplacians
 
 laplacians = build_laplacians(boundaries)
 
-## Save
-
+# save
 boundaries_path = os.path.join(COMPLEX_FOLDER_START_NODE, f"boundaries.npy")
 laplacians_path = os.path.join(COMPLEX_FOLDER_START_NODE, f"laplacians.npy")
 
@@ -216,32 +193,23 @@ np.save(boundaries_path, boundaries)
 
 # 7. Cochains to missing data
 
-
-# Input
+# input
 
 # starting_node = 150250
 percentage_missing_values = 30
 
-
 # cochains = np.load(f's2_3_collaboration_complex/{starting_node}_cochains.npy')
 # simplices = np.load(f's2_3_collaboration_complex/{starting_node}_simplices.npy')
-
-## Build missing values
-
 
 missing_values = build_missing_values(
     simplices, percentage_missing_values=30, max_dim=7
 )
-
-# Build damaged dataset
-
 
 damaged_dataset = build_damaged_dataset(cochains, missing_values, function=np.median)
 
 known_values = build_known_values(missing_values, simplices)
 
 # Save
-
 missing_values_path = os.path.join(
     COMPLEX_FOLDER_START_NODE,
     f"percentage_{percentage_missing_values}_missing_values.npy",
@@ -250,6 +218,7 @@ damaged_input_path = os.path.join(
     COMPLEX_FOLDER_START_NODE,
     f"percentage_{percentage_missing_values}_input_damaged.npy",
 )
+
 known_values_path = os.path.join(
     COMPLEX_FOLDER_START_NODE,
     f"percentage_{percentage_missing_values}_known_values.npy",

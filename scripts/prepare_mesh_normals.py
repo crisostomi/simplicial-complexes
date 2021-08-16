@@ -6,14 +6,19 @@ import numpy as np
 import os
 
 # ad hoc
-from mesh_normals.utils.meshes import plot_mesh
-from mesh_normals.utils.io import save_dict, load_mesh_positions_triangles
-from mesh_normals.utils.simplices import create_simplices, create_signals, build_boundaries, build_laplacians
+from inter_order.utils.meshes import plot_mesh
+from inter_order.utils.io import save_dict, load_mesh_positions_triangles
+from inter_order.utils.simplices import (
+    create_simplices,
+    create_signals,
+    build_boundaries,
+    build_laplacians,
+)
 
 # params
-data_folder = 'data'
+data_folder = "data/inter_order"
 
-mesh_name = 'bob'
+mesh_name = "bob"
 
 # mesh loading
 positions, triangles = load_mesh_positions_triangles(mesh_name, data_folder)
@@ -46,13 +51,23 @@ boundaries = build_boundaries(simplices)
 laplacians = build_laplacians(boundaries)
 
 # save
-to_save = {'laplacians': laplacians, 'boundaries': boundaries, 'positions': node_signals,
-                      'noisy_positions': noisy_node_signals, 'original_positions': positions,
-                      'normals': triangle_signals, 'triangles': triangles}
+save_folder = os.path.join(data_folder, mesh_name)
+if not os.path.isdir(save_folder):
+    os.mkdir(save_folder)
+
+to_save = {
+    "laplacians": laplacians,
+    "boundaries": boundaries,
+    "positions": node_signals,
+    "noisy_positions": noisy_node_signals,
+    "original_positions": positions,
+    "normals": triangle_signals,
+    "triangles": triangles,
+}
 
 for elem_name, elem_data in to_save.items():
-    filename = f'{mesh_name}_{elem_name}'
-    path = os.path.join(data_folder, filename)
+
+    path = os.path.join(save_folder, elem_name)
     if isinstance(elem_data, dict):
         save_dict(elem_data, path)
     else:

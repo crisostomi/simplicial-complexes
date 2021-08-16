@@ -4,4 +4,4 @@
 /.idea/
 /data/scnn/raw/
 /data/inter_order/raw/
-/data/scnn/bipartite_graph
+/data/scnn/bipartite_graph/

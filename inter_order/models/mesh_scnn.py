@@ -4,14 +4,14 @@ from inter_order.models.simplicial_convolution import MySimplicialConvolution
 import pytorch_lightning as pl
 from torch.optim import Adam
 from torch.nn.functional import normalize
-from inter_order.utils.meshes import plot_mesh, transform_normals_to_rgb
-from inter_order.utils.io import load_dict, print_evaluation_report
 from inter_order.utils.misc import compute_angle_diff, compute_per_coord_diff
 
 
-class MySCNN(pl.LightningModule):
-    def __init__(self, filter_size, colors):
+class MeshSCNN(pl.LightningModule):
+    def __init__(self, params, plotter):
         super().__init__()
+        filter_size, colors = params["filter_size"], params["colors"]
+        self.plotter = plotter
 
         assert colors > 0
         self.colors = colors
@@ -295,7 +295,8 @@ class MySCNN(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         preds = self.get_predictions(batch)
-        targets = batch["triangle_normals"]
+        # TODO: fix batching
+        targets = batch["triangle_normals"][0]
         return {"preds": preds, "targets": targets}
 
     def test_epoch_end(self, test_batch_outputs):
@@ -305,7 +306,18 @@ class MySCNN(pl.LightningModule):
         per_coord_diffs = compute_per_coord_diff(preds, targets)
         normalized_preds = normalize(preds, dim=1)
         angle_diff = compute_angle_diff(normalized_preds, targets)
-        print_evaluation_report(per_coord_diffs, angle_diff)
+
+        self.log_dict(
+            {
+                "x_diff": per_coord_diffs[0],
+                "y_diff": per_coord_diffs[1],
+                "z_diff": per_coord_diffs[2],
+                "angle_diff": angle_diff,
+            }
+        )
+
+        self.plotter.pred_normals = normalized_preds
+        self.plot_results()
 
     def get_predictions(self, batch):
         node_positions, triangle_normals = (
@@ -323,15 +335,17 @@ class MySCNN(pl.LightningModule):
         return preds
 
     def plot_results(self):
-        pass
-        # positions = original_positions
-        # triangles = np.stack(triangles)
+        target_norm_colors = self.plotter.transform_normals_to_rgb()
+        true_plot = self.plotter.plot_mesh(
+            title="True normals", colors=target_norm_colors
+        )
+        true_plot.show()
 
-        # target_norm_colors = transform_normals_to_rgb(targets)
-        # plot_mesh(positions, triangles, "True normals", target_norm_colors)
-        #
-        # predicted_norm_colors = transform_normals_to_rgb(normalized_preds)
-        # plot_mesh(positions, triangles, "Predicted normals", predicted_norm_colors)
+        predicted_norm_colors = self.plotter.transform_normals_to_rgb(pred=True)
+        pred_plot = self.plotter.plot_mesh(
+            title="Predicted normals", colors=predicted_norm_colors
+        )
+        pred_plot.show()
 
     def configure_optimizers(self):
         return Adam(self.parameters(), lr=1e-3)

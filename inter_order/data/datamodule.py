@@ -7,7 +7,7 @@ from inter_order.data.dataset import NormalsDataset
 
 
 class NormalsDataModule(pl.LightningDataModule):
-    def __init__(self, data, use_noisy=False):
+    def __init__(self, data):
         super(NormalsDataModule, self).__init__()
 
         self.laplacians, self.boundaries = data["laplacians"], data["boundaries"]

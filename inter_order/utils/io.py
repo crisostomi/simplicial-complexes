@@ -4,6 +4,15 @@ import torch_geometric
 import trimesh
 import os
 import torch
+import yaml
+
+
+def load_config(config_path):
+
+    with open(config_path) as file:
+        config = yaml.safe_load(file)
+
+    return config
 
 
 def save_dict(dictionary, path):
@@ -59,7 +68,3 @@ def load_mesh_positions_triangles(mesh_name, data_folder):
         raise NotImplementedError
 
     return positions, triangles
-
-
-def print_evaluation_report(per_coord_diffs, angle_diff):
-    print(f"Per coordinate diff: {per_coord_diffs}, angle difference: {angle_diff}")

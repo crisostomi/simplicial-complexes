@@ -1,28 +1,26 @@
-# deep learning
-import torch
+import argparse
 
-# data
-import pandas as pd
-import numpy as np
-
-# ad hoc
 from inter_order.utils.misc import *
-from inter_order.models.mesh_scnn import MySCNN
+from inter_order.utils.io import load_config
+from inter_order.utils.plotter import Plotter
+from inter_order.models.mesh_scnn import MeshSCNN
 from inter_order.data.datamodule import NormalsDataModule
 from pytorch_lightning import Trainer
 
-# misc
-import os
+parser = argparse.ArgumentParser()
+parser.add_argument("config")
+cli_args = parser.parse_args()
+
+config = load_config(cli_args.config)
+
+paths, run_params, model_params = (
+    config["paths"],
+    config["run_params"],
+    config["models"],
+)
 
 print_torch_version()
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-data_folder = "data/inter_order"
-
-# run settings
-USE_NOISY = True
-mesh_name = "bob"
-
-# data loading
 
 to_load = {
     "laplacians": list,
@@ -33,20 +31,19 @@ to_load = {
     "normals": dict,
     "triangles": list,
 }
-
-load_folder = os.path.join(data_folder, mesh_name)
+load_folder = os.path.join(paths["data"], paths["mesh_name"])
 loaded_data = load_data(to_load, load_folder)
 
 data_module = NormalsDataModule(loaded_data)
 
-filter_size = 30
+plotter = Plotter(
+    loaded_data["original_positions"],
+    loaded_data["triangles"],
+    data_module.triangle_normals[0],
+)
+model = MeshSCNN(model_params["mesh_scnn"], plotter)
 
-# model = LinearBaseline(num_nodes, num_triangles).to(device)
-# model = TopologyAwareBaseline(num_nodes, num_triangles, node_triangle_adj).to(device)
-model = MySCNN(filter_size, colors=3).to(device)
+trainer = Trainer(max_epochs=run_params["max_epochs"], gpus=run_params["gpus"])
 
-num_epochs = 10
-trainer = Trainer(max_epochs=num_epochs, gpus=1)
 trainer.fit(model, data_module)
-
 trainer.test(model)

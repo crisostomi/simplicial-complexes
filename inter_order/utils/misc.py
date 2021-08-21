@@ -52,7 +52,7 @@ def compute_per_coord_diff(preds, targets):
     :return:
     """
 
-    diffs = torch.mean(torch.abs(preds - targets), axis=1)
+    diffs = torch.mean(torch.abs(preds - targets), axis=0)
 
     return diffs
 
@@ -63,8 +63,6 @@ def compute_angle_diff(preds, targets):
     :param targets: (num_triangles, 3)
     :return:
     """
-    print(preds.shape)
-    print(targets.shape)
     angle_matrix = preds @ targets.T
     angles = torch.diag(angle_matrix)
 

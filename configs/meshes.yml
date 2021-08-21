@@ -1,8 +1,9 @@
 paths:
   data: data/inter_order
+  mesh_name: bob
 
 run_params:
-  max_epochs: 10
+  max_epochs: 3
   gpus: 1
 
 models:

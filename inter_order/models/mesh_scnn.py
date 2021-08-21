@@ -1,9 +1,15 @@
 import torch
 import torch.nn as nn
 from inter_order.models.simplicial_convolution import MySimplicialConvolution
+import pytorch_lightning as pl
+from torch.optim import Adam
+from torch.nn.functional import normalize
+from inter_order.utils.meshes import plot_mesh, transform_normals_to_rgb
+from inter_order.utils.io import load_dict, print_evaluation_report
+from inter_order.utils.misc import compute_angle_diff, compute_per_coord_diff
 
 
-class MySCNN(nn.Module):
+class MySCNN(pl.LightningModule):
     def __init__(self, filter_size, colors):
         super().__init__()
 
@@ -132,7 +138,7 @@ class MySCNN(nn.Module):
 
         self.last_aggregator = nn.Linear(2 * self.colors * num_filters, self.colors)
 
-    def forward(self, xs, laplacians, Bs, Bts):
+    def forward(self, X, boundaries, laplacians):
         """
         parameters:
             xs: inputs
@@ -140,13 +146,16 @@ class MySCNN(nn.Module):
 
         layers = range(self.num_layers + 1)
         dims = range(self.num_dims)
+
         L = laplacians
+        Bs = boundaries
+        Bts = [B.transpose(1, 0) for B in Bs]
 
         ###### layer 1 ######
 
         # S0 = conv(S0)
         # (num_filters x num_dims, num_nodes)
-        S0 = self.C["l1"]["d0"](L[0], xs[0])
+        S0 = self.C["l1"]["d0"](L[0], X)
         S0 = self.activaction(S0)
 
         # S1 = lift(S0)
@@ -263,3 +272,66 @@ class MySCNN(nn.Module):
 
     def lift(self, B, S):
         return B @ S.transpose(1, 0)
+
+    def training_step(self, batch, batch_idx):
+        """
+        :param batch:
+        :param batch_idx:
+        :return:
+        """
+
+        triangle_normals = batch["triangle_normals"][0]
+
+        preds = self.get_predictions(batch)
+
+        criterion = nn.MSELoss(reduction="mean")
+        loss = torch.tensor(0.0).type_as(preds)
+        for i in range(3):
+            loss += criterion(preds[:, i], triangle_normals[:, i])
+
+        self.log("train_loss", loss, on_epoch=True, prog_bar=True, logger=True)
+
+        return loss
+
+    def test_step(self, batch, batch_idx):
+        preds = self.get_predictions(batch)
+        targets = batch["triangle_normals"]
+        return {"preds": preds, "targets": targets}
+
+    def test_epoch_end(self, test_batch_outputs):
+        preds = torch.cat([batch["preds"] for batch in test_batch_outputs], dim=0)
+        targets = torch.cat([batch["targets"] for batch in test_batch_outputs], dim=0)
+
+        per_coord_diffs = compute_per_coord_diff(preds, targets)
+        normalized_preds = normalize(preds, dim=1)
+        angle_diff = compute_angle_diff(normalized_preds, targets)
+        print_evaluation_report(per_coord_diffs, angle_diff)
+
+    def get_predictions(self, batch):
+        node_positions, triangle_normals = (
+            batch["node_positions"][0],
+            batch["triangle_normals"][0],
+        )
+        boundaries = [batch["B1"][0], batch["B2"][0]]
+        laplacians = [
+            batch["node_laplacian"][0],
+            batch["edge_laplacian"][0],
+            batch["triangle_laplacian"][0],
+        ]
+
+        preds = self(X=node_positions, boundaries=boundaries, laplacians=laplacians)
+        return preds
+
+    def plot_results(self):
+        pass
+        # positions = original_positions
+        # triangles = np.stack(triangles)
+
+        # target_norm_colors = transform_normals_to_rgb(targets)
+        # plot_mesh(positions, triangles, "True normals", target_norm_colors)
+        #
+        # predicted_norm_colors = transform_normals_to_rgb(normalized_preds)
+        # plot_mesh(positions, triangles, "Predicted normals", predicted_norm_colors)
+
+    def configure_optimizers(self):
+        return Adam(self.parameters(), lr=1e-3)

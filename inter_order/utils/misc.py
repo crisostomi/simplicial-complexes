@@ -3,6 +3,28 @@ import torch.nn as nn
 import numpy as np
 import scipy
 from tqdm import tqdm
+from enum import Enum
+import os
+from inter_order.utils.io import load_dict
+
+
+def print_torch_version():
+    TORCH_VERSION = torch.__version__[:5]
+    CUDA_VERSION = torch.version.cuda.replace(".", "")
+    print(f"Running torch version {TORCH_VERSION}, with CUDA version {CUDA_VERSION}")
+
+
+def load_data(to_load, load_folder):
+    loaded_data = {}
+
+    for elem_name, elem_type in to_load.items():
+        path = os.path.join(load_folder, elem_name)
+
+        if elem_type == dict:
+            loaded_data[elem_name] = load_dict(path)
+        else:
+            loaded_data[elem_name] = np.load(path + ".npy", allow_pickle=True)
+    return loaded_data
 
 
 def print_number_of_parameters(network):
@@ -21,32 +43,6 @@ def coo2tensor(A):
     idxs = torch.LongTensor(np.vstack((A.row, A.col)))
     vals = torch.FloatTensor(A.data)
     return torch.sparse_coo_tensor(idxs, vals, size=A.shape, requires_grad=False)
-
-# def normalize_normals_vec(v):
-#     re
-
-def train(model, num_epochs, components, inputs, targets, Bs, Bt_s, optimizer, device, verbose=False):
-    criterion = nn.MSELoss(reduction="mean")
-
-    for epoch in tqdm(range(0, num_epochs)):
-
-        # (max_simplex_dim+1, 1, num_simplices_dim_k)
-        xs = [input.clone().to(device) for input in inputs]
-
-        optimizer.zero_grad()
-        ys = model(xs, components, Bs, Bt_s)
-        # ys = model(xs[0])
-
-        loss = torch.tensor(0., device=device)
-
-        for i in range(3):
-            loss += criterion(ys[:, i], targets[:, i])
-
-        if verbose:
-            print(f'Epoch: {epoch}, loss: {round(loss.item(), 4)}')
-
-        loss.backward()
-        optimizer.step()
 
 
 def compute_per_coord_diff(preds, targets):
@@ -67,9 +63,17 @@ def compute_angle_diff(preds, targets):
     :param targets: (num_triangles, 3)
     :return:
     """
+    print(preds.shape)
+    print(targets.shape)
     angle_matrix = preds @ targets.T
     angles = torch.diag(angle_matrix)
 
     arcs = torch.arccos(angles) / np.pi * 180
 
     return torch.mean(arcs)
+
+
+class Phases(Enum):
+    train = "training"
+    val = "validation"
+    test = "test"

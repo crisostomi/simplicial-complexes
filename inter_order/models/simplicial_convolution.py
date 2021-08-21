@@ -18,8 +18,14 @@ class MySimplicialConvolution(nn.Module):
         self.filter_size = filter_size
         self.enable_bias = enable_bias
 
-        self.theta = nn.parameter.Parameter(variance * torch.randn((self.C_out, self.C_in, self.filter_size)))
-        self.bias = nn.parameter.Parameter(torch.zeros((self.C_out, 1))) if self.enable_bias else 0.0
+        self.theta = nn.parameter.Parameter(
+            variance * torch.randn((self.C_out, self.C_in, self.filter_size))
+        )
+        self.bias = (
+            nn.parameter.Parameter(torch.zeros((self.C_out, 1)))
+            if self.enable_bias
+            else 0.0
+        )
 
     def forward(self, L, x):
         (channels_in, num_simplices) = x.shape
@@ -65,7 +71,9 @@ def my_assemble(filter_size, L, x):
             bar_X.append(bar_X_1)
 
             for k in range(2, filter_size):
-                bar_X.append(2 * (L @ bar_X[k - 1]) - bar_X[k - 2])  # \bar{x}_k = 2 L \bar{x}_{k-1} - \bar{x}_{k-2}
+                bar_X.append(
+                    2 * (L @ bar_X[k - 1]) - bar_X[k - 2]
+                )  # \bar{x}_k = 2 L \bar{x}_{k-1} - \bar{x}_{k-2}
 
         # (num_simplices, filter_size)
         bar_X = torch.cat(bar_X, 1)

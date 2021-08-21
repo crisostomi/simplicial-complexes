@@ -239,3 +239,12 @@ def get_empty_triangles(simplices):
                         empty_triangles.add(ijk)
 
     return empty_triangles
+
+
+def get_largest_eigenvalue(M):
+    """
+        Given a matrix M, returns its largest eigenvalue
+    """
+    assert sparse.isspmatrix_coo(M)
+
+    return linalg.eigsh(M, k=1, which="LM", return_eigenvectors=False)[0]

@@ -1,0 +1,12 @@
+paths:
+  data: data/inter_order
+
+run_params:
+  max_epochs: 10
+  gpus: 1
+
+models:
+  mesh_scnn:
+    filter_size: 30
+    colors: 3
+

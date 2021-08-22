@@ -49,8 +49,8 @@ def load_mesh_positions_triangles(mesh_name, data_folder):
 
     if mesh_name == "bob":
         mesh = trimesh.load(os.path.join(data_folder, f"{mesh_name}_tri.obj"))
-        positions = torch.tensor(mesh.vertices)
-        triangles = torch.tensor(mesh.faces)
+        positions = torch.tensor(mesh.vertices).unsqueeze(0)
+        triangles = torch.tensor(mesh.faces).unsqueeze(0)
 
     elif mesh_name.startswith("faust"):
         meshes = torch_geometric.datasets.FAUST(data_folder)

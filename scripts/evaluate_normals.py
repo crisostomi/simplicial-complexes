@@ -1,10 +1,10 @@
 import argparse
 
-from inter_order.utils.misc import *
-from inter_order.utils.io import load_config
-from inter_order.utils.plotter import Plotter
-from inter_order.models.mesh_scnn import MeshSCNN
-from inter_order.data.datamodule import NormalsDataModule
+from tsp_sc.common.misc import *
+from tsp_sc.common.io import load_config
+from tsp_sc.inter_order.utils.plotter import Plotter
+from tsp_sc.inter_order.models.mesh_scnn import MeshSCNN
+from tsp_sc.inter_order.data.datamodule import NormalsDataModule
 from pytorch_lightning import Trainer
 
 parser = argparse.ArgumentParser()

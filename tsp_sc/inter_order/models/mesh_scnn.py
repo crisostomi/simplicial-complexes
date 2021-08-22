@@ -1,10 +1,10 @@
 import torch
 import torch.nn as nn
-from inter_order.models.simplicial_convolution import MySimplicialConvolution
+from tsp_sc.common.simplicial_convolution import MySimplicialConvolution
 import pytorch_lightning as pl
 from torch.optim import Adam
 from torch.nn.functional import normalize
-from inter_order.utils.misc import compute_angle_diff, compute_per_coord_diff
+from tsp_sc.common.misc import compute_angle_diff, compute_per_coord_diff
 
 
 class MeshSCNN(pl.LightningModule):

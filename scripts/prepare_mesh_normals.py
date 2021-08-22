@@ -6,9 +6,9 @@ import numpy as np
 import os
 
 # ad hoc
-from inter_order.utils.meshes import plot_mesh
-from inter_order.utils.io import save_dict, load_mesh_positions_triangles
-from inter_order.utils.simplices import (
+# from tsp_sc.inter_order.common.meshes import plot_mesh
+from tsp_sc.common.io import save_dict, load_mesh_positions_triangles
+from tsp_sc.common.simplices import (
     create_simplices,
     create_signals,
     build_boundaries,
@@ -18,13 +18,13 @@ from inter_order.utils.simplices import (
 # params
 data_folder = "data/inter_order"
 
-mesh_name = "bob"
+mesh_name = "faust"
 
 # mesh loading
 positions, triangles = load_mesh_positions_triangles(mesh_name, data_folder)
 num_triangles, num_vertices = triangles.shape[0], positions.shape[0]
 
-plot_mesh(positions, triangles, mesh_name)
+# plot_mesh(positions, triangles, mesh_name)
 
 # data sorting
 triangles = sorted(triangles, key=lambda tr: (tr[0], tr[1], tr[2]))
@@ -34,20 +34,14 @@ triangles = torch.stack(triangles)
 sigma = 10
 noisy_positions = np.random.normal(positions, sigma)
 
-
-# simplices creation
 simplices = create_simplices(triangles)
 
-
-# signal creation
 node_signals, triangle_signals = create_signals(triangles, positions)
 noisy_node_signals, _ = create_signals(triangles, noisy_positions)
 
 assert len(triangle_signals) == num_triangles
 
-# incidence matrices and Laplacians creation
 boundaries = build_boundaries(simplices)
-
 laplacians = build_laplacians(boundaries)
 
 # save

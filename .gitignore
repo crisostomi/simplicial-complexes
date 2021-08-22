@@ -2,6 +2,6 @@
 /data/raw/*
 /.idea/*
 /.idea/
-/data/scnn/raw/
+/data/citations/raw/
 /data/inter_order/raw/
-/data/scnn/bipartite_graph/
+/data/citations/bipartite_graph/

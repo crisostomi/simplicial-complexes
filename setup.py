@@ -7,5 +7,6 @@ setup(
         "scripts/prepare_mesh_normals.py",
         "scripts/evaluate_normals.py",
         "scripts/create_citation_simplices.py",
+        "scripts/evaluate_citations.py",
     ],
 )

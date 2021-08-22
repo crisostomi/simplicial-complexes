@@ -1,9 +1,9 @@
 import pytorch_lightning as pl
 import torch
 from torch.utils.data import DataLoader
-from inter_order.utils.misc import coo2tensor, Phases
-from inter_order.utils.simplices import normalize_laplacian
-from inter_order.data.dataset import NormalsDataset
+from tsp_sc.common.misc import coo2tensor, Phases
+from tsp_sc.common.simplices import normalize_laplacian
+from tsp_sc.inter_order.data.dataset import NormalsDataset
 
 
 class NormalsDataModule(pl.LightningDataModule):

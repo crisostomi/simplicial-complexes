@@ -1,49 +1,26 @@
-import sys
 import os
-import gzip
-import glob
-import json
-import pickle
-import time
-import contextlib
-from tqdm import tqdm
-from pprint import pprint
-from random import shuffle
 
 import torch
-import torch.nn as nn
 import numpy as np
-import scipy
 from scipy import sparse
-import torch.utils.data as data
 import scipy.sparse.linalg
-from scipy.sparse import coo_matrix
-import scipy.sparse as sp
-import scipy.sparse.linalg as spl
 import pandas as pd
 
 # graphs
-import networkx as nx
-from networkx.algorithms import bipartite as nxb
 
 # TDA
-import gudhi
 
 # Graph Signal Processing
-import pygsp as pg
 
 # plots
-import matplotlib as mpl
-from matplotlib import pyplot as plt
 
 # ad hoc
 from inter_order.utils.simplices import (
-    get_empty_triangles,
     build_laplacians,
     build_boundaries,
 )
 
-from scnn.utils.citations import *
+from citations.utils.citations import *
 
 # reproducibility
 torch.manual_seed(1337)
@@ -51,7 +28,7 @@ np.random.seed(1337)
 
 # paths
 
-DATA_FOLDER = os.path.join("data/scnn")
+DATA_FOLDER = os.path.join("data/citations")
 OUT_FOLDER = os.path.join(DATA_FOLDER, "output")
 RAW_DATA_FOLD = os.path.join(DATA_FOLDER, "raw")
 RAW_GRAPH_FOLD = os.path.join(DATA_FOLDER, "bipartite_graph")

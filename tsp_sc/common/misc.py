@@ -1,11 +1,32 @@
 import torch
-import torch.nn as nn
 import numpy as np
 import scipy
-from tqdm import tqdm
 from enum import Enum
 import os
-from inter_order.utils.io import load_dict
+from tsp_sc.common.io import load_dict
+
+
+def get_paths(path_params, data_params):
+    starting_node, missing_value_ratio = (
+        data_params["starting_node"],
+        data_params["missing_value_ratio"],
+    )
+    paths = {k: v for k, v in path_params.items()}
+    starting_node_const = "STARTINGNODE"
+    missing_value_ratio_const = "MISSINGVALUERATIO"
+    for path_name, path_value in path_params.items():
+        if starting_node_const in path_value:
+            paths[path_name] = path_value.replace(
+                starting_node_const, starting_node
+            ).replace(missing_value_ratio_const, str(missing_value_ratio))
+    return paths
+
+
+def similar(val_pred, val_true, margin):
+    """
+Returns whether the predicted value is not further than margin*original_value from the original value
+"""
+    return torch.abs(val_pred - val_true) <= (margin * val_true)
 
 
 def print_torch_version():

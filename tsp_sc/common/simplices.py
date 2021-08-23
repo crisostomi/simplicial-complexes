@@ -3,9 +3,12 @@ from scipy.sparse import coo_matrix
 import numpy as np
 import torch
 import scipy
+import scipy.sparse as sparse
 from scipy.sparse import linalg
 from scipy.sparse import coo_matrix
 from scipy.sparse import csr_matrix
+import itertools
+import gudhi
 
 
 def create_simplices(triangles):
@@ -249,9 +252,6 @@ def get_largest_eigenvalue(M):
     return linalg.eigsh(M, k=1, which="LM", return_eigenvectors=False)[0]
 
 
-import numpy as np
-
-
 def compute_normal(triangle):
     assert triangle.shape[0] == 3
     v1, v2, v3 = triangle
@@ -268,3 +268,71 @@ def compute_normal(triangle):
     norm = np.sqrt(N[0] ** 2 + N[1] ** 2 + N[2] ** 2)
 
     return N / norm
+
+
+def list_triangles(G):
+    triangles = []
+    # sort vertices by increasing degree
+    sorted_vertices = sorted(G.nodes(), key=lambda v: G.degree(v))
+    visited = set()
+    for u in sorted_vertices:
+
+        visited.add(u)
+        neighbors_higher_deg = {
+            neighbor for neighbor in G.neighbors(u) if G.degree(neighbor) >= G.degree(u)
+        } - visited
+        possible_edges = list(itertools.combinations(neighbors_higher_deg, 2))
+
+        for possible_edge in possible_edges:
+            if possible_edge in G.edges():
+                v, w = possible_edge
+                triangles.append({u, v, w})
+    return triangles
+
+
+def list_triangles_bruteforce(G):
+    triangles = []
+    for u in G.nodes:
+        for v in G.neighbors(u):
+            for w in G.neighbors(v):
+                if w != u and (u, w) in G.edges():
+                    if {u, v, w} not in triangles:
+                        triangles.append({u, v, w})
+    return triangles
+
+
+def count_triangles(graphs):
+    num_triangles = 0
+
+    for g in graphs:
+        num_triangles += len(list_triangles(g))
+
+    avg_num_triangles = num_triangles / len(graphs)
+    return avg_num_triangles
+
+
+def build_simplex_from_graph(G):
+    simplex_tree = gudhi.SimplexTree()
+
+    triangles = list_triangles(G)
+
+    for triangle in triangles:
+        simplex_tree.insert(triangle)
+
+    for edge in G.edges():
+        simplex_tree.insert(edge)
+
+    for node in G.nodes():
+        simplex_tree.insert({node})
+
+    return simplex_tree
+
+
+def extract_simplices(simplex_tree, max_dim):
+    """Create a list of simplices from a gudhi simplex tree."""
+    simplices = [dict() for _ in range(max_dim + 1)]
+    for simplex, _ in simplex_tree.get_skeleton(max_dim):
+        k = len(simplex)
+        simplices[k - 1][frozenset(simplex)] = len(simplices[k - 1])
+
+    return simplices

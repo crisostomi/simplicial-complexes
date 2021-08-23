@@ -10,7 +10,7 @@ paths:
   simplices: data/citations/collaboration_complex/STARTINGNODE/simplices.npy
 
 data:
-  max_simplex_dim: 10
+  max_simplex_dim: 2
   considered_simplex_dim: 2
   starting_node: original
   missing_value_ratio: 30

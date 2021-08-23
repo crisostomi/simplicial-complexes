@@ -1,3 +1,6 @@
+import numpy as np
+
+
 def process_papers(corpus):
     """First pass through all the papers."""
 
@@ -754,3 +757,19 @@ def build_known_values(missing_values, simplices):
             known_values[k][simplex] = simplices[k][simplex]
 
     return known_values
+
+
+def get_paths(path_params, data_params):
+    starting_node, missing_value_ratio = (
+        data_params["starting_node"],
+        data_params["missing_value_ratio"],
+    )
+    paths = {k: v for k, v in path_params.items()}
+    starting_node_const = "STARTINGNODE"
+    missing_value_ratio_const = "MISSINGVALUERATIO"
+    for path_name, path_value in path_params.items():
+        if starting_node_const in path_value:
+            paths[path_name] = path_value.replace(
+                starting_node_const, starting_node
+            ).replace(missing_value_ratio_const, str(missing_value_ratio))
+    return paths

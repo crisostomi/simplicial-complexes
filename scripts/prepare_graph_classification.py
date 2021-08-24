@@ -18,9 +18,9 @@ from tsp_sc.common.simplices import (
 
 dataset_name = "PROTEINS"
 max_dim = 2
-DATA_FOLDER = "data/graph_classification"
+DATA_FOLDER = "data/graph-classification"
 DATASET_PATH = os.path.join(DATA_FOLDER, f"raw/{dataset_name}")
-PREPROC_FOLDER = os.path.join(DATA_FOLDER, "preprocessed")
+PREPROC_FOLDER = os.path.join(DATA_FOLDER, f"preprocessed/{dataset_name}")
 
 graphs = tud_to_networkx(DATASET_PATH, dataset_name)
 num_graphs = len(graphs)
@@ -28,9 +28,11 @@ print(f"Loaded {num_graphs} graphs belonging to the {dataset_name} dataset")
 
 print(f"Each graph has on average {count_triangles(graphs)} triangles")
 
-simplex_trees = [
-    build_simplex_from_graph(G) for G in graphs if len(list_triangles(G)) >= 2
-]
+graphs = [G for G in graphs if len(list_triangles(G)) >= 2]
+num_graphs = len(graphs)
+print(f"{num_graphs} graphs have at least 2 triangles")
+
+simplex_trees = [build_simplex_from_graph(G) for G in graphs]
 
 simplicial_complexes = [
     extract_simplices(simplex_tree, max_dim) for simplex_tree in simplex_trees
@@ -66,8 +68,9 @@ for G in graphs:
 boundaries = [
     build_boundaries(simplicial_complex) for simplicial_complex in simplicial_complexes
 ]
-
 laplacians = [build_laplacians(sc_boundary) for sc_boundary in boundaries]
+
+assert len(laplacians) == len(boundaries) and len(boundaries) == len(signals)
 
 boundaries_path = os.path.join(PREPROC_FOLDER, f"boundaries.npy")
 laplacians_path = os.path.join(PREPROC_FOLDER, f"laplacians.npy")

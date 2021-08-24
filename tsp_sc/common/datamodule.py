@@ -34,20 +34,21 @@ class TopologicalDataModule(pl.LightningDataModule):
     def get_irrotational_component(self):
         irr = [None for i in range(self.considered_simplex_dim + 1)]
 
-        for k in range(self.considered_simplex_dim + 1):
-            irr_batch = []
-            for b in range(self.batch_size):
-                print(k, b)
-                Btk_upper = self.boundaries[k + 1][b].transpose().todense()
-                Bk_upper = self.boundaries[k + 1][b].todense()
+        dimensions = (
+            self.considered_simplex_dim + 1
+            if self.consider_last_dim_upper_adj
+            else self.considered_simplex_dim
+        )
+
+        for k in range(dimensions):
+            irr_dim_k = []
+            for i in range(self.num_complexes):
+                Btk_upper = self.boundaries[k + 1][i].transpose().todense()
+                Bk_upper = self.boundaries[k + 1][i].todense()
 
                 BBt = Bk_upper @ Btk_upper
-                irr_batch.append(coo_matrix(BBt))
-            irr[k] = irr_batch
-
-        if not self.consider_last_dim_upper_adj:
-            for b in range(self.batch_size):
-                irr[b][self.considered_simplex_dim] = None
+                irr_dim_k.append(coo_matrix(BBt))
+            irr[k] = irr_dim_k
 
         return irr
 
@@ -55,26 +56,26 @@ class TopologicalDataModule(pl.LightningDataModule):
         sol = [None for i in range(self.considered_simplex_dim + 1)]
 
         for k in range(1, self.considered_simplex_dim + 1):
-            sol_batch = []
-            for b in range(self.batch_size):
-                Btk = self.boundaries[k][b].transpose().todense()
-                Bk = self.boundaries[k][b].todense()
+            sol_dim_k = []
+            for i in range(self.num_complexes):
+                Btk = self.boundaries[k][i].transpose().todense()
+                Bk = self.boundaries[k][i].todense()
 
                 BtB = Btk @ Bk
-                sol_batch.append(coo_matrix(BtB))
-            sol[k] = sol_batch
+                sol_dim_k.append(coo_matrix(BtB))
+            sol[k] = sol_dim_k
 
         return sol
 
     def normalize_components(self):
-        for i in range(0, self.considered_simplex_dim + 1):
+        for k in range(0, self.considered_simplex_dim + 1):
             for comp in ["sol", "irr", "full"]:
-                if self.components[comp][i] is not None:
-                    for b in range(self.batch_size):
+                if self.components[comp][k] is not None:
+                    for i in range(self.num_complexes):
                         normalized = normalize_laplacian(
-                            self.components[comp][i][b], half_interval=True
+                            self.components[comp][k][i], half_interval=True
                         )
-                        self.components[comp][i][b] = coo2tensor(normalized)
+                        self.components[comp][k][i] = coo2tensor(normalized)
 
     def get_last_dim_upper_adj_flag(self, data_params):
         return (

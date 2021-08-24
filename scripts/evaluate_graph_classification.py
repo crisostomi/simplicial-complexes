@@ -23,15 +23,14 @@ path_params, data_params, run_params, model_params = (
 
 assert data_params["considered_simplex_dim"] <= data_params["max_simplex_dim"]
 
-
 device = "cuda" if torch.cuda.is_available else "cpu"
 paths = get_paths(path_params, data_params)
 
 data_module = GraphClassificationDataModule(paths, data_params)
 
-model = ClassificationSCNN(model_params["citation_scnn"])
+model = ClassificationSCNN(model_params["classification_scnn"])
 
 trainer = Trainer(max_epochs=run_params["max_epochs"], gpus=run_params["gpus"])
-# trainer.fit(model, data_module)
+trainer.fit(model, data_module)
 
 # trainer.test(model)

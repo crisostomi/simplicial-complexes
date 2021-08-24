@@ -296,26 +296,12 @@ class ClassificationSCNN(pl.LightningModule):
         return out
 
     def training_step(self, batch, batch_idx):
-
-        targets = (batch["Y0"], batch["Y1"], batch["Y2"])
-        known_indices = (
-            batch["known_indices_0"],
-            batch["known_indices_1"],
-            batch["known_indices_2"],
-        )
+        X0, X1, X2 = batch["X0"], batch["X1"], batch["X2"]
 
         preds = self.get_preds(batch)
 
-        considered_simplex_dim = len(targets) - 1
-
-        criterion = nn.L1Loss(reduction="sum")
-        loss = torch.FloatTensor([0.0]).type_as(targets[0])
-
-        for k in range(0, considered_simplex_dim + 1):
-            # compute the loss over the k-th dimension of the sample b (0 unless batch) over the known simplices
-            loss += criterion(
-                preds[k][0, known_indices[k]], targets[k][0, known_indices[k]]
-            )
+        criterion = nn.CrossEntropyLoss()
+        loss = torch.FloatTensor([0.0]).type_as(X0)
 
         self.log("loss", loss)
         return loss
@@ -333,7 +319,7 @@ class ClassificationSCNN(pl.LightningModule):
 
     def get_components_from_batch(self, batch):
         S0, S1, S2 = None, batch["S1"], batch["S2"]
-        I0, I1, I2 = batch["I0"], batch["I1"], batch["I2"]
+        I0, I1, I2 = batch["I0"], batch["I1"], None
         L0, L1, L2 = batch["L0"], batch["L1"], batch["L2"]
         components = {"full": [L0, L1, L2], "irr": [I0, I1, I2], "sol": [S0, S1, S2]}
         return components
@@ -341,91 +327,14 @@ class ClassificationSCNN(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         preds = self.get_preds(batch)
         targets = (batch["Y0"], batch["Y1"], batch["Y2"])
-        known_indices = (
-            batch["known_indices_0"],
-            batch["known_indices_1"],
-            batch["known_indices_2"],
-        )
 
-        return {"preds": preds, "targets": targets, "known_indices": known_indices}
+        return {"preds": preds, "targets": targets}
 
     def test_epoch_end(self, test_batch_outputs):
         preds = [batch["preds"] for batch in test_batch_outputs][0]
         targets = [batch["targets"] for batch in test_batch_outputs][0]
-        known_indices = [batch["known_indices"] for batch in test_batch_outputs][0]
 
-        margins = [0.3, 0.2, 0.1]
-        only_missing_simplices = True
-
-        accuracies = self.compute_accuracy_margins(
-            preds, targets, margins, known_indices, only_missing_simplices
-        )
-        accuracy_report = self.get_accuracy_report(accuracies)
-        self.log_dict(accuracy_report)
-
-    def compute_accuracy_margins(
-        self, preds, targets, margins, known_indices, only_missing_simplices
-    ):
-        accuracies = {margin: [] for margin in margins}
-
-        for margin in margins:
-            margin_accuracies = self.compute_accuracy_margin(
-                preds, targets, margin, known_indices, only_missing_simplices
-            )
-            accuracies[margin].append(margin_accuracies)
-
-        return accuracies
-
-    def compute_accuracy_margin(
-        self, preds, targets, margin, known_indices, only_missing_simplices
-    ):
-        """
-        returns the accuracy for each dimension by counting the number
-        of hits over the total number of simplices of that dimension
-        if only_missing_simplices is True, then the accuracy is computed only over the missing simplices
-        """
-        known_indices_set = [
-            set([tens.item() for tens in known_indices[i]])
-            for i in range(len(known_indices))
-        ]
-
-        dims = len(targets)
-        accuracies = []
-
-        for k in range(dims):
-
-            hits = 0
-            den = 0
-
-            (_, num_simplices_dim_k) = preds[k].shape
-
-            for j in range(num_simplices_dim_k):
-
-                # if we only compute the accuracy over the missing simplices,
-                # then we skip this simplex if it is known
-                if only_missing_simplices:
-                    if j in known_indices_set[k]:
-                        continue
-
-                curr_value_pred = preds[k][0][j]
-                curr_value_true = targets[k][0][j]
-                den += 1
-
-                if similar(curr_value_pred, curr_value_true, margin):
-                    hits += 1
-
-            accuracy = round(hits / den, 4)
-            accuracies.append(accuracy)
-
-        return accuracies
-
-    def get_accuracy_report(self, accuracies):
-        accuracy_report = {}
-        for margin, margin_accuracies in accuracies.items():
-            margin_accuracies = margin_accuracies[0]
-            for dim, acc in enumerate(margin_accuracies):
-                accuracy_report[f"margin-{margin}-dim-{dim}"] = acc
-        return accuracy_report
+        # self.log_dict()
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=1e-3)

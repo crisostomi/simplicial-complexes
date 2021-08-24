@@ -16,6 +16,7 @@ class CitationDataModule(TopologicalDataModule):
         self.laplacians = self.load_laplacians(paths)
         self.boundaries = self.load_boundaries(paths)
 
+        self.num_complexes = len(self.laplacians[0])
         self.num_simplices = [L[0].shape[0] for L in self.laplacians]
 
         self.components = self.get_orthogonal_components()

@@ -53,6 +53,7 @@ def my_assemble(filter_size, L, x):
     """
 
     (C_in, num_simplices) = x.shape
+
     assert L.shape[0] == num_simplices
     assert L.shape[0] == L.shape[1]  # L is a square matrix
     assert filter_size > 0

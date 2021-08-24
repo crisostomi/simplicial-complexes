@@ -1,6 +1,9 @@
 from tsp_sc.common.datamodule import TopologicalDataModule
 import numpy as np
 import torch
+from tsp_sc.graph_classification.data.dataset import GraphClassificationDataset
+from tsp_sc.common.misc import Phases
+from torch.utils.data import DataLoader
 
 
 class GraphClassificationDataModule(TopologicalDataModule):
@@ -9,26 +12,25 @@ class GraphClassificationDataModule(TopologicalDataModule):
 
         self.laplacians = self.load_laplacians(paths)
         self.boundaries = self.load_boundaries(paths)
+        self.num_complexes = len(self.laplacians[0])
 
-        print(len(self.boundaries))
         self.components = self.get_orthogonal_components()
 
         self.normalize_components()
 
         self.inputs = self.prepare_inputs(paths)
-
         self.graph_indices = self.prepare_graph_indices()
+
+        self.datasets = self.get_datasets()
 
     def load_laplacians(self, paths):
         laplacians = np.load(paths["laplacians"], allow_pickle=True)
         laplacians = [
             laplacian[: self.considered_simplex_dim + 1] for laplacian in laplacians
         ]
-        laplacians = (
-            [[L[0] for L in laplacians]]
-            + [[L[1] for L in laplacians]]
-            + [[L[2] for L in laplacians]]
-        )
+        laplacians = [
+            [L[i] for L in laplacians] for i in range(self.considered_simplex_dim + 1)
+        ]
         return laplacians
 
     def load_boundaries(self, paths):
@@ -37,12 +39,20 @@ class GraphClassificationDataModule(TopologicalDataModule):
             list(boundary[: self.considered_simplex_dim + 1]) for boundary in boundaries
         ]
 
-        Bs = [None] + [[B[0] for B in Bs]] + [[B[1] for B in Bs]]
+        Bs = [None] + [[B[i] for B in Bs] for i in range(self.considered_simplex_dim)]
         return Bs
 
     def prepare_inputs(self, paths):
-        inputs = np.load(paths["inputs"], allow_pickle=True)
-        inputs = [torch.tensor(input[0]) for input in inputs]
+        """
+        :param paths: paths to numpy array (num_complexes, 3)
+        :return: list of tensors (3, num_complexes)
+        """
+        inputs = np.load(paths["signals"], allow_pickle=True)
+        assert len(inputs) == self.num_complexes
+        inputs = [
+            [torch.tensor(input[i]) for input in inputs]
+            for i in range(self.considered_simplex_dim + 1)
+        ]
 
         return inputs
 
@@ -57,6 +67,15 @@ class GraphClassificationDataModule(TopologicalDataModule):
         #     graph_indices.append(current_ind)
         #
         # print(graph_indices)
+
+    def get_datasets(self):
+        datasets = {
+            Phases.train: GraphClassificationDataset(self.inputs, self.components)
+        }
+        return datasets
+
+    def train_dataloader(self):
+        return DataLoader(self.datasets[Phases.train], batch_size=self.batch_size)
 
     def print_stats(self):
         num_complexes = len(self.laplacians)

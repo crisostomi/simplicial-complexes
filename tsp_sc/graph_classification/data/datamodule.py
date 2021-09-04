@@ -3,7 +3,12 @@ import numpy as np
 import torch
 from tsp_sc.graph_classification.data.dataset import GraphClassificationDataset
 from tsp_sc.common.misc import Phases
+from tsp_sc.common.simplices import (
+    get_index_from_boundary,
+    get_orientation_from_boundary,
+)
 from torch.utils.data import DataLoader
+from tsp_sc.common.complex import Cochain
 
 
 class GraphClassificationDataModule(TopologicalDataModule):
@@ -13,15 +18,26 @@ class GraphClassificationDataModule(TopologicalDataModule):
         self.laplacians = self.load_laplacians(paths)
         self.boundaries = self.load_boundaries(paths)
         self.num_complexes = len(self.laplacians[0])
+        self.complexes = self.create_complexes()
 
         self.components = self.get_orthogonal_components()
-
         self.normalize_components()
 
         self.inputs = self.prepare_inputs(paths)
         self.graph_indices = self.prepare_graph_indices()
 
         self.datasets = self.get_datasets()
+
+    def create_complexes(self):
+        cochain_list = []
+        for (boundary, coboundary) in zip(
+            self.boundaries[1][0:], self.boundaries[1][1:]
+        ):
+            cochain = Cochain.from_boundaries(
+                dim=1, boundary=boundary, coboundary=coboundary
+            )
+            cochain_list.append(cochain)
+            print(cochain.num_simplices_up)
 
     def load_laplacians(self, paths):
         laplacians = np.load(paths["laplacians"], allow_pickle=True)

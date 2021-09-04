@@ -76,6 +76,10 @@ def compute_angle_diff(preds, targets):
     return torch.mean(arcs)
 
 
+def unsqueeze_list(l):
+    return [[elem] for elem in l]
+
+
 class Phases(Enum):
     train = "training"
     val = "validation"

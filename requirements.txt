@@ -1,12 +1,14 @@
 trimesh
 pymesh
-torch==1.8.0
 dill
 seaborn
-torch-scatter -f https://pytorch-geometric.com/whl/torch-1.8.0+cu101.html
-torch-sparse -f https://pytorch-geometric.com/whl/torch-1.8.0+cu101.html
-torch-cluster -f https://pytorch-geometric.com/whl/torch-1.8.0+cu101.html
-torch-spline-conv -f https://pytorch-geometric.com/whl/torch-1.8.0+cu101.html
+torch-scatter -f https://pytorch-geometric.com/whl/torch-1.9.0+cu111.html
+torch-sparse -f https://pytorch-geometric.com/whl/torch-1.9.0+cu111.html
+torch-cluster -f https://pytorch-geometric.com/whl/torch-1.9.0+cu111.html
+torch-spline-conv -f https://pytorch-geometric.com/whl/torch-1.9.0+cu111.html
 torch-geometric
+pytorch-lightning
 networkx
+pandas
+tqdm==4.62.2
 -e .

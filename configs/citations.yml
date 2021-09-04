@@ -10,23 +10,94 @@ paths:
   simplices: data/citations/collaboration_complex/STARTINGNODE/simplices.npy
 
 data:
-  max_simplex_dim: 2
-  considered_simplex_dim: 2
-  starting_node: original
+  max_simplex_dim: 10
+  considered_simplex_dim: 3
+  starting_node: large
   missing_value_ratio: 30
   batch_size: 1
 
 run_params:
-  max_epochs: 400
+  max_epochs: 10
   gpus: 1
   random_state: 1337
+  min_delta: 0.1
+  patience: 50
 
 models:
-  citation_scnn:
-    filter_size: 5
+  my_scnn_mlp:
+    name: 'my_scnn_mlp'
+    filter_size: 8
     colors: 1
+    num_filters: 30
+    variance: 0.01
+    aggregation: MLP # possible values: 'sum', 'MLP'
+    component_to_use: both # possible values: 'both', 'sol', 'irr'
+    keep_separated: false
+
+  my_scnn_sum:
+    name: 'my_scnn_sum'
+    filter_size: 8
+    colors: 1
+    num_filters: 30
+    variance: 0.01
     aggregation: sum # possible values: 'sum', 'MLP'
     component_to_use: both # possible values: 'both', 'sol', 'irr'
     keep_separated: false
+
+  my_scnn_separated_sum:
+    name: 'my_scnn_separated_sum'
+    filter_size: 5
+    colors: 1
+    num_filters: 30
+    variance: 0.01
+    aggregation: sum # possible values: 'sum', 'MLP'
+    component_to_use: both # possible values: 'both', 'sol', 'irr'
+    keep_separated: true
+
+  my_scnn_separated_mlp:
+    name: 'my_scnn_separated_mlp'
+    filter_size: 5
+    colors: 1
+    num_filters: 30
+    variance: 0.01
+    aggregation: MLP # possible values: 'sum', 'MLP'
+    component_to_use: both # possible values: 'both', 'sol', 'irr'
+    keep_separated: true
+
+  my_scnn_sol:
+    name: 'my_scnn_sol'
+    filter_size: 5
+    colors: 1
+    num_filters: 30
+    variance: 0.01
+    aggregation: MLP # possible values: 'sum', 'MLP'
+    component_to_use: sol # possible values: 'both', 'sol', 'irr'
+    keep_separated: true
+
+  my_scnn_irr:
+    name: 'my_scnn_irr'
+    filter_size: 5
+    colors: 1
+    num_filters: 30
+    variance: 0.01
+    aggregation: MLP # possible values: 'sum', 'MLP'
+    component_to_use: irr # possible values: 'both', 'sol', 'irr'
+    keep_separated: true
+
+  deff_scnn:
+    name: 'deff_scnn'
+    filter_size: 5
+    colors: 1
+    num_filters: 30
+    variance: 0.01
+
+  deff_scnn_mlp:
+    name: 'deff_scnn_mlp'
+    filter_size: 5
+    colors: 1
+    num_filters: 30
+    variance: 0.01
+
+
 
 

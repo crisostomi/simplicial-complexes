@@ -336,3 +336,16 @@ def extract_simplices(simplex_tree, max_dim):
         simplices[k - 1][frozenset(simplex)] = len(simplices[k - 1])
 
     return simplices
+
+
+def get_index_from_boundary(boundary):
+    return np.argwhere(boundary != 0)
+
+
+def get_orientation_from_boundary(boundary: coo_matrix) -> np.ndarray:
+    """
+    :param boundary: sparse matrix containing as indices the ids of incident simplices
+                     and as values +1 or -1
+    :return: array containing +1 or -1 for each incidence
+    """
+    return boundary.data

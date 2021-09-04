@@ -1,11 +1,28 @@
 import numpy as np
 import dill
-import torch_geometric
+
+# import torch_geometric
 import trimesh
 import os
 import torch
 import yaml
 import networkx as nx
+
+
+def get_run_config(model_name, config):
+    new_config = {"data": config["data"], "run_params": config["run_params"]}
+    for k, v in config.items():
+        if k == model_name:
+            new_config[model_name] = v
+    return new_config
+
+
+def add_cli_args(config, cli_args):
+    for k in cli_args.__dict__:
+        if cli_args.__dict__[k] is not None:
+            config[k] = cli_args.__dict__[k]
+    if "starting_node" in cli_args.__dict__:
+        config["data"]["starting_node"] = cli_args.starting_node
 
 
 def load_config(config_path):

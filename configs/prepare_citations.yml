@@ -1,0 +1,11 @@
+paths:
+  data: data/citations
+  out: data/citations/out
+  raw: data/citations/raw
+  corpus: data/citations/raw/s2-corpus-*.gz
+  paper_author_graph_full: data/citations/raw/paper_author_full.pickle
+  complex_folder: data/citations/collaboration_complex
+  raw_graph_fold: data/citations/bipartite_graph
+  adj_papers_path: data/citations/bipartite_graph/papers_adjacency.npz
+  adj_authors_path: data/citations/bipartite_graph/authors_adjacency.npz
+  biadjacency_matrix_path: data/citations/bipartite_graph/paper_author_biadjacency.npz

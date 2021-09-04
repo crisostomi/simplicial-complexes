@@ -1,13 +1,29 @@
 import torch
 from torch.utils.data import DataLoader
 import numpy as np
-
-from tsp_sc.common.misc import Phases
+import random
+import math
+from tsp_sc.common.misc import Phases, unsqueeze_list
 from tsp_sc.citations.data.dataset import CitationsDataset
 from tsp_sc.common.datamodule import TopologicalDataModule
 
 
 class CitationDataModule(TopologicalDataModule):
+    """
+        laplacians: list (considered_simplex_dim) of lists each having len (batch_size)
+                     containing the laplacians (num_simplex_dim_k, num_simplex_dim_k)
+                     laplacians[i][j] contains the i-dimensional Laplacian of sample j
+        boundaries: list (considered_simplex_dim) of lists each having len (batch_size)
+                     containing the boundaries (num_simplex_dim_k, num_simplex_dim_k+1)
+                     boundaries[i][j] contains the i-dimensional boundary of sample j
+        components: 'full': list (considered_simplex_dim) list[i] has len (num_complexes)
+                            list[i][j] contains the i-dimensional Laplacian of sample j
+                    'har': same as 'full', but containing harmonic components
+                    'sol': same as 'full', but containing solenoidal components
+                    'irr': same as 'full', but containing irrotational components
+
+    """
+
     def __init__(self, paths, data_params):
         super(CitationDataModule, self).__init__(paths, data_params)
 
@@ -23,22 +39,46 @@ class CitationDataModule(TopologicalDataModule):
 
         self.normalize_components()
 
+        # simplices is a list of dictionaries, one per dimension d
+        # the dictionary's keys are the (d+1)-sets of the vertices that constitute the d-simplices
+        # the dictionary's values are the indexes of the simplices in the boundary and Laplacian matrices
         simplices = np.load(paths["simplices"], allow_pickle=True)
 
+        # known_simplices is a list of dictionaries, one per dimension d
+        # the dictionary's keys are the known d-simplices
+        # the dictionary's values are their indices in the Laplacian and boundaries
         self.known_simplices = np.load(paths["known_values"], allow_pickle=True,)
+
+        # analogously missing_simplices has as keys the missing  d -simplices
         self.missing_simplices = np.load(paths["missing_values"], allow_pickle=True)
+
+        # target is a list of dictionaries, one per dimension d.
+        # The dictionary's keys are all the d -simplices.
+        # The dictionary's values are the d-cochains, i.e. the number of citations of the d-simplices.
         targets = np.load(paths["citations"], allow_pickle=True)
+
+        # input is a list of dictionaries, one per dimension d.
+        # The dictionary's keys are all the d-simplices.
+        # The dictionary's values are the d -cochains where the damaged portion
+        # has been replaced with the median.
         inputs = np.load(paths["input_damaged"], allow_pickle=True)
 
+        # known_indices[d] contains the list of indices (position of the simplices
+        # in the Laplacian and boundary matrices) for the known simplices
+        # of dimension d.
         self.known_indices = [
             list(self.known_simplices[d].values())
             for d in range(self.considered_simplex_dim + 1)
         ]
+
+        # Analogously, missing_indices[d] contains the list
+        # of indices for the missing simplices of dimension d.
         self.missing_indices = [
             list(self.missing_simplices[d].values())
             for d in range(self.considered_simplex_dim + 1)
         ]
 
+        # Sort both input and target following the ordering of the keys in simplices
         self.sorted_input = [
             {key: int(inputs[k][key]) for key, _ in simplices[k].items()}
             for k in range(0, self.considered_simplex_dim + 1)
@@ -56,6 +96,8 @@ class CitationDataModule(TopologicalDataModule):
             for k in range(0, self.considered_simplex_dim + 1)
         ]
 
+        self.train_indices = self.known_indices
+        self.val_indices, self.test_indices = self.split_val_test(self.missing_indices)
         self.prepare_batches()
 
         self.targets = self.prepare_targets()
@@ -65,31 +107,62 @@ class CitationDataModule(TopologicalDataModule):
 
         self.validate()
 
-    def prepare_batches(self):
-        if self.batch_size == 1:
-            self.known_indices = self.unsqueeze_list(self.known_indices)
-            self.missing_indices = self.unsqueeze_list(self.missing_indices)
-            self.sorted_input = self.unsqueeze_list(self.sorted_input)
-            self.sorted_target = self.unsqueeze_list(self.sorted_target)
-            self.sorted_input_values = self.unsqueeze_list(self.sorted_target_values)
-            self.sorted_target_values = self.unsqueeze_list(self.sorted_target_values)
-            self.known_simplices = self.unsqueeze_list(self.known_simplices)
+    def split_val_test(self, missing_indices):
+        val_ratio = 0.3
+        val_indices = []
+        test_indices = []
+        for k in range(self.considered_simplex_dim + 1):
+            k_dim_missing_indices = missing_indices[k]
+            random.shuffle(k_dim_missing_indices)
+            val_upperbound = math.ceil(val_ratio * len(k_dim_missing_indices))
+            k_dim_val_indices = k_dim_missing_indices[:val_upperbound]
+            k_dim_test_indices = k_dim_missing_indices[val_upperbound:]
+            val_indices.append(k_dim_val_indices)
+            test_indices.append(k_dim_test_indices)
 
-    def load_laplacians(self, paths):
+        return val_indices, test_indices
+
+    def prepare_batches(self):
+        if self.num_complexes == 1:
+            self.known_indices = unsqueeze_list(self.known_indices)
+            self.train_indices = unsqueeze_list(self.train_indices)
+            self.val_indices = unsqueeze_list(self.val_indices)
+            self.test_indices = unsqueeze_list(self.test_indices)
+            self.missing_indices = unsqueeze_list(self.missing_indices)
+            self.sorted_input = unsqueeze_list(self.sorted_input)
+            self.sorted_target = unsqueeze_list(self.sorted_target)
+            self.sorted_input_values = unsqueeze_list(self.sorted_input_values)
+            self.sorted_target_values = unsqueeze_list(self.sorted_target_values)
+            self.known_simplices = unsqueeze_list(self.known_simplices)
+
+    def load_laplacians(self, paths: dict):
+        """
+        :param paths: dict containing the path to the laplacians
+                      stored as a list (max_simplex_dim) of tensors (num_simplex_dim_k, num_simplex_dim_k)
+        :return: list (considered_simplex_dim) of lists each having len (num_complexes)
+                     containing the laplacians (num_simplex_dim_k, num_simplex_dim_k)
+                     laplacians[i][j] contains the i-dimensional Laplacian of sample j
+        """
         # laplacians[k] has shape (num_simplex_dim_k, num_simplex_dim_k)
         laplacians = np.load(paths["laplacians"], allow_pickle=True).tolist()
 
-        # laplacians[k] has shape (1, num_simplex_dim_k, num_simplex_dim_k)
+        # laplacians[k] has shape (num_complexes, num_simplex_dim_k, num_simplex_dim_k)
         laplacians = [[L] for L in laplacians[: self.considered_simplex_dim + 1]]
         return laplacians
 
-    def load_boundaries(self, paths):
+    def load_boundaries(self, paths: dict):
+        """
+        :param paths: dict containing the path to the boundaries
+                      stored as a list (max_simplex_dim) of tensors (num_simplex_dim_k, num_simplex_dim_k+1)
+        :return: list (considered_simplex_dim) of lists each having len (num_complexes)
+                     containing the boundaries (num_simplex_dim_k, num_simplex_dim_k+1)
+                     boundaries[i][j] contains the i-dimensional boundary of sample j
+        """
         # boundaries[k] has shape (num_simplex_dim_k, num_simplex_dim_k+1)
         boundaries = np.load(paths["boundaries"], allow_pickle=True).tolist()
 
-        # TODO: handle batching
-        # boundaries[k] has shape (1, num_simplex_dim_k-1, num_simplex_dim_k)
-        boundaries = [None] + [
+        # boundaries[k] has shape (num_complexes, num_simplex_dim_k-1, num_simplex_dim_k)
+        boundaries = [[None]] + [
             [B] for B in boundaries[: self.considered_simplex_dim + 1]
         ]
         return boundaries
@@ -97,15 +170,23 @@ class CitationDataModule(TopologicalDataModule):
     def train_dataloader(self):
         return DataLoader(self.datasets[Phases.train])
 
+    def val_dataloader(self):
+        # same dataset as training, indices are different
+        return DataLoader(self.datasets[Phases.train])
+
     def test_dataloader(self):
-        # definetely weird to return the training dataset,
-        # but the loss is computed on different indices
+        # same dataset as training, indices are different
         return DataLoader(self.datasets[Phases.train])
 
     def get_datasets(self):
         datasets = {
             Phases.train: CitationsDataset(
-                self.inputs, self.targets, self.components, self.known_indices
+                self.inputs,
+                self.targets,
+                self.components,
+                self.train_indices,
+                self.val_indices,
+                self.test_indices,
             )
         }
         return datasets
@@ -222,7 +303,3 @@ class CitationDataModule(TopologicalDataModule):
             <= avg_known_indices_ratio
             <= expected_known_indices_ratio + tol
         )
-
-    @staticmethod
-    def unsqueeze_list(l):
-        return [[elem] for elem in l]

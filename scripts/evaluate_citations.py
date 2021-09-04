@@ -32,7 +32,6 @@ path_params, data_params, run_params, model_params = (
 )
 
 assert data_params["considered_simplex_dim"] <= data_params["max_simplex_dim"]
-model_params["considered_simplex_dim"] = data_params["considered_simplex_dim"]
 
 device = "cuda" if torch.cuda.is_available else "cpu"
 paths = get_paths(path_params, data_params)
@@ -42,6 +41,10 @@ data_module = CitationDataModule(paths, data_params)
 model_names = list(model_params.keys())
 
 for model_name in model_names:
+    model_params[model_name]["considered_simplex_dim"] = data_params[
+        "considered_simplex_dim"
+    ]
+
     model = get_model(model_name, model_params[model_name])
 
     early_stopping_callback = EarlyStopping(

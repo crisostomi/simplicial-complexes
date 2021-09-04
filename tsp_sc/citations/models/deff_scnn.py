@@ -14,67 +14,56 @@ class DeffSCNN(CitationSCNN):
         self.filter_size = params["filter_size"]
         self.num_filters = params["num_filters"]
         self.variance = params["variance"]
+        self.considered_simplex_dim = params["considered_simplex_dim"]
 
-        # degree 0 convolutions
+        self.num_layers = 3
+        self.num_dims = self.considered_simplex_dim + 1
+        self.layers = [f"l{i}" for i in range(1, self.num_layers + 1)]
+        self.dims = [f"d{i}" for i in range(self.considered_simplex_dim + 1)]
 
-        self.C0_1 = SimplicialConvolution(
-            filter_size=self.filter_size,
-            C_in=self.colors,
-            C_out=self.num_filters * self.colors,
-            variance=self.variance,
-        )
-
-        self.C0_2 = SimplicialConvolution(
-            filter_size=self.filter_size,
-            C_in=self.num_filters * self.colors,
-            C_out=self.num_filters * self.colors,
-            variance=self.variance,
-        )
-        self.C0_3 = SimplicialConvolution(
-            filter_size=self.filter_size,
-            C_in=self.num_filters * self.colors,
-            C_out=self.colors,
-            variance=self.variance,
+        self.C = nn.ModuleDict(
+            {
+                layer: nn.ModuleDict({dim: nn.ModuleDict() for dim in self.dims})
+                for layer in self.layers
+            }
         )
 
-        # degree 1 convolutions
-        self.C1_1 = SimplicialConvolution(
-            filter_size=self.filter_size,
-            C_in=self.colors,
-            C_out=self.num_filters * self.colors,
-            variance=self.variance,
-        )
-        self.C1_2 = SimplicialConvolution(
-            filter_size=self.filter_size,
-            C_in=self.num_filters * self.colors,
-            C_out=self.num_filters * self.colors,
-            variance=self.variance,
-        )
-        self.C1_3 = SimplicialConvolution(
-            filter_size=self.filter_size,
-            C_in=self.num_filters * self.colors,
-            C_out=self.colors,
-            variance=self.variance,
+        # layer 1
+        self.C["l1"] = nn.ModuleDict(
+            {
+                dim: SimplicialConvolution(
+                    filter_size=self.filter_size,
+                    C_in=self.colors,
+                    C_out=self.num_filters * self.colors,
+                    variance=self.variance,
+                )
+                for dim in self.dims
+            }
         )
 
-        # degree 2 convolutions
-        self.C2_1 = SimplicialConvolution(
-            filter_size=self.filter_size,
-            C_in=self.colors,
-            C_out=self.num_filters * self.colors,
-            variance=self.variance,
+        # layer 2
+        self.C["l2"] = nn.ModuleDict(
+            {
+                dim: SimplicialConvolution(
+                    filter_size=self.filter_size,
+                    C_in=self.num_filters * self.colors,
+                    C_out=self.num_filters * self.colors,
+                    variance=self.variance,
+                )
+                for dim in self.dims
+            }
         )
-        self.C2_2 = SimplicialConvolution(
-            filter_size=self.filter_size,
-            C_in=self.num_filters * self.colors,
-            C_out=self.num_filters * self.colors,
-            variance=self.variance,
-        )
-        self.C2_3 = SimplicialConvolution(
-            filter_size=self.filter_size,
-            C_in=self.num_filters * self.colors,
-            C_out=self.colors,
-            variance=self.variance,
+
+        self.C["l3"] = nn.ModuleDict(
+            {
+                dim: SimplicialConvolution(
+                    filter_size=self.filter_size,
+                    C_in=self.num_filters * self.colors,
+                    C_out=self.colors,
+                    variance=self.variance,
+                )
+                for dim in self.dims
+            }
         )
 
         self.save_hyperparameters()
@@ -89,31 +78,31 @@ class DeffSCNN(CitationSCNN):
         Ls = laplacians
 
         # 1st pass of convolutions
-        out0_1 = self.C0_1(Ls[0], xs[0])
-        out1_1 = self.C1_1(Ls[1], xs[1])
-        out2_1 = self.C2_1(Ls[2], xs[2])
+        outs = {layer: {dim: {} for dim in self.dims} for layer in self.layers}
+
+        for dim in range(self.num_dims):
+            outs["l1"][f"d{dim}"] = self.C["l1"][f"d{dim}"](Ls[dim], xs[dim])
 
         # 2nd pass of convolutions
-        out0_2 = self.C0_2(Ls[0], nn.LeakyReLU()(out0_1))
-        out1_2 = self.C1_2(Ls[1], nn.LeakyReLU()(out1_1))
-        out2_2 = self.C2_2(Ls[2], nn.LeakyReLU()(out2_1))
+        for dim in range(self.num_dims):
+            outs["l2"][f"d{dim}"] = self.C["l2"][f"d{dim}"](
+                Ls[dim], nn.LeakyReLU()(outs["l1"][f"d{dim}"])
+            )
 
         # 3rd pass of convolutions
-        out0_3 = self.C0_3(Ls[0], nn.LeakyReLU()(out0_2))
-        out1_3 = self.C1_3(Ls[1], nn.LeakyReLU()(out1_2))
-        out2_3 = self.C2_3(Ls[2], nn.LeakyReLU()(out2_2))
+        for dim in range(self.num_dims):
+            outs["l3"][f"d{dim}"] = self.C["l3"][f"d{dim}"](
+                Ls[dim], nn.LeakyReLU()(outs["l2"][f"d{dim}"])
+            )
 
-        return [out0_3, out1_3, out2_3]
+        return [outs["l3"][dim] for dim in self.dims]
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=1e-3)
 
     def get_preds(self, batch):
-        inputs = (
-            batch["X0"],
-            batch["X1"],
-            batch["X2"],
-        )
+        inputs = [batch[f"X{i}"] for i in range(self.num_dims)]
+
         components = self.get_components_from_batch(batch)
         laplacians = components["full"]
 

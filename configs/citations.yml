@@ -11,17 +11,17 @@ paths:
 
 data:
   max_simplex_dim: 10
-  considered_simplex_dim: 3
-  starting_node: large
+  considered_simplex_dim: 4
+  starting_node: original
   missing_value_ratio: 30
   batch_size: 1
 
 run_params:
-  max_epochs: 10
+  max_epochs: 1000
   gpus: 1
   random_state: 1337
   min_delta: 0.1
-  patience: 50
+  patience: 20
 
 models:
   my_scnn_mlp:

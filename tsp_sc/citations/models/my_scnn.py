@@ -1,6 +1,6 @@
+import torch
 import torch.nn as nn
 from tsp_sc.common.simplicial_convolution import MySimplicialConvolution
-import torch
 from tsp_sc.citations.models.citation_scnn import CitationSCNN
 
 
@@ -30,30 +30,63 @@ class MySCNN(CitationSCNN):
         self.variance = params["variance"]
 
         self.num_layers = 3
-        self.num_dims = 3
+        self.num_dims = self.considered_simplex_dim + 1
+        self.layers = [f"l{i}" for i in range(1, self.num_layers + 1)]
+        self.dims = [f"d{i}" for i in range(self.considered_simplex_dim + 1)]
+        self.comps = ["sol", "irr"]
 
         self.C = nn.ModuleDict(
             {
-                f"l{i}": nn.ModuleDict(
-                    {f"d{j}": nn.ModuleDict() for j in range(0, self.num_dims)}
-                )
-                for i in range(1, self.num_layers + 1)
+                layer: nn.ModuleDict({dim: nn.ModuleDict() for dim in self.dims})
+                for layer in self.layers
             }
         )
 
-        # degree 0 convolutions
+        # layer 1
         self.C["l1"]["d0"]["irr"] = MySimplicialConvolution(
             self.filter_size,
             C_in=self.colors,
             C_out=self.num_filters * self.colors,
             variance=self.variance,
         )
+
+        for dim in self.dims[1:]:
+
+            self.C["l1"][dim] = nn.ModuleDict(
+                {
+                    comp: MySimplicialConvolution(
+                        self.filter_size,
+                        C_in=self.colors,
+                        C_out=(self.num_filters // 2) * self.colors,
+                        variance=self.variance,
+                    )
+                    for comp in self.comps
+                }
+            )
+
+        # layer 2
         self.C["l2"]["d0"]["irr"] = MySimplicialConvolution(
             self.filter_size,
             C_in=self.num_filters * self.colors,
             C_out=self.num_filters * self.colors,
             variance=self.variance,
         )
+
+        for dim in self.dims[1:]:
+
+            self.C["l2"][dim] = nn.ModuleDict(
+                {
+                    comp: MySimplicialConvolution(
+                        self.filter_size,
+                        C_in=(self.num_filters // 2) * self.colors,
+                        C_out=(self.num_filters // 2) * self.colors,
+                        variance=self.variance,
+                    )
+                    for comp in self.comps
+                }
+            )
+
+        # layer 3
         self.C["l3"]["d0"]["irr"] = MySimplicialConvolution(
             self.filter_size,
             C_in=self.num_filters * self.colors,
@@ -61,108 +94,40 @@ class MySCNN(CitationSCNN):
             variance=self.variance,
         )
 
-        # degree 1 convolutions
-        self.C["l1"]["d1"]["sol"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=self.colors,
-            C_out=(self.num_filters // 2) * self.colors,
-            variance=self.variance,
-        )
-        self.C["l2"]["d1"]["sol"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=(self.num_filters // 2) * self.colors,
-            C_out=(self.num_filters // 2) * self.colors,
-            variance=self.variance,
-        )
-        self.C["l3"]["d1"]["sol"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=(self.num_filters // 2) * self.colors,
-            C_out=self.colors,
-            variance=self.variance,
-        )
+        for dim in self.dims[1:]:
 
-        self.C["l1"]["d1"]["irr"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=self.colors,
-            C_out=(self.num_filters // 2) * self.colors,
-            variance=self.variance,
-        )
-        self.C["l2"]["d1"]["irr"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=(self.num_filters // 2) * self.colors,
-            C_out=(self.num_filters // 2) * self.colors,
-            variance=self.variance,
-        )
-        self.C["l3"]["d1"]["irr"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=(self.num_filters // 2) * self.colors,
-            C_out=self.colors,
-            variance=self.variance,
-        )
-
-        # degree 2 convolutions
-        self.C["l1"]["d2"]["sol"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=self.colors,
-            C_out=(self.num_filters // 2) * self.colors,
-            variance=self.variance,
-        )
-        self.C["l2"]["d2"]["sol"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=(self.num_filters // 2) * self.colors,
-            C_out=(self.num_filters // 2) * self.colors,
-            variance=self.variance,
-        )
-        self.C["l3"]["d2"]["sol"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=(self.num_filters // 2) * self.colors,
-            C_out=self.colors,
-            variance=self.variance,
-        )
-        self.C["l1"]["d2"]["irr"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=self.colors,
-            C_out=(self.num_filters // 2) * self.colors,
-            variance=self.variance,
-        )
-        self.C["l2"]["d2"]["irr"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=(self.num_filters // 2) * self.colors,
-            C_out=(self.num_filters // 2) * self.colors,
-            variance=self.variance,
-        )
-        self.C["l3"]["d2"]["irr"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=(self.num_filters // 2) * self.colors,
-            C_out=self.colors,
-            variance=self.variance,
-        )
-
+            self.C["l3"][dim] = nn.ModuleDict(
+                {
+                    comp: MySimplicialConvolution(
+                        self.filter_size,
+                        C_in=(self.num_filters // 2) * self.colors,
+                        C_out=self.colors,
+                        variance=self.variance,
+                    )
+                    for comp in self.comps
+                }
+            )
+        # aggregating layers
         if self.aggregation == "MLP":
-            self.L = nn.ModuleDict(
-                {f"l{i}": nn.ModuleDict() for i in range(1, self.num_layers + 1)}
-            )
+            self.L = nn.ModuleDict({layer: nn.ModuleDict() for layer in self.layers})
 
-            self.L["l1"]["d1"] = nn.Linear(
-                2 * ((self.num_filters // 2) * self.colors),
-                (self.num_filters // 2) * self.colors,
-            )
-            self.L["l1"]["d2"] = nn.Linear(
-                2 * ((self.num_filters // 2) * self.colors),
-                (self.num_filters // 2) * self.colors,
-            )
+            # layer 1
+            for dim in self.dims[1:]:
+                self.L["l1"][dim] = nn.Linear(
+                    2 * ((self.num_filters // 2) * self.colors),
+                    (self.num_filters // 2) * self.colors,
+                )
 
-            self.L["l2"]["d1"] = nn.Linear(
-                2 * ((self.num_filters // 2) * self.colors),
-                (self.num_filters // 2) * self.colors,
-            )
-            self.L["l2"]["d2"] = nn.Linear(
-                2 * ((self.num_filters // 2) * self.colors),
-                (self.num_filters // 2) * self.colors,
-            )
+            # layer 2
+            for dim in self.dims[1:]:
+                self.L["l2"][dim] = nn.Linear(
+                    2 * ((self.num_filters // 2) * self.colors),
+                    (self.num_filters // 2) * self.colors,
+                )
 
-            self.L["l3"]["d1"] = nn.Linear(2 * self.colors, self.colors)
-            self.L["l3"]["d2"] = nn.Linear(2 * self.colors, self.colors)
+            # layer 3
+            for dim in self.dims[1:]:
+                self.L["l3"][dim] = nn.Linear(2 * self.colors, self.colors)
 
         self.save_hyperparameters()
 
@@ -204,9 +169,8 @@ class MySCNN(CitationSCNN):
                             prev_output, components, layer, dim, comp
                         )
 
-            final_out0 = outs[last_layer]["d0"]["irr"]
-            final_out1, final_out2 = self.merge_components(outs)
-
+            merged_components = self.merge_components(outs)
+            final_output = [outs[last_layer]["d0"]["irr"]] + merged_components
         else:
 
             outs = {f"l{layer}": {} for layer in layers}
@@ -222,14 +186,9 @@ class MySCNN(CitationSCNN):
                     outs[f"l{layer}"][f"d{dim}"] = self.aggregate(
                         comp_outputs, layer, dim
                     )
+            final_output = [outs[last_layer][f"d{dim}"] for dim in dims]
 
-            final_out0, final_out1, final_out2 = (
-                outs[last_layer]["d0"],
-                outs[last_layer]["d1"],
-                outs[last_layer]["d2"],
-            )
-
-        return [final_out0, final_out1, final_out2]
+        return final_output
 
     def convolve(self, input, components, layer, dim, component):
         """
@@ -254,20 +213,22 @@ class MySCNN(CitationSCNN):
     """
 
         if self.component_to_use != "both":
-            final_out1, final_out2 = (
-                outs["l3"]["d1"][self.component_to_use],
-                outs["l3"]["d2"][self.component_to_use],
-            )
+            final_outs = [
+                outs["l3"][f"d{dim}"][self.component_to_use]
+                for dim in range(1, self.num_dims)
+            ]
 
         else:
-            final_out1 = self.aggregate(
-                [outs["l3"]["d1"]["sol"], outs["l3"]["d1"]["irr"]], layer=3, dim=2
-            )
-            final_out2 = self.aggregate(
-                [outs["l3"]["d2"]["sol"], outs["l3"]["d2"]["irr"]], layer=3, dim=2
-            )
+            final_outs = [
+                self.aggregate(
+                    [outs["l3"][f"d{dim}"]["sol"], outs["l3"][f"d{dim}"]["irr"]],
+                    layer=3,
+                    dim=1,
+                )
+                for dim in range(1, self.num_dims)
+            ]
 
-        return final_out1, final_out2
+        return final_outs
 
     def aggregate(self, components_outputs, layer, dim):
         """
@@ -301,11 +262,7 @@ class MySCNN(CitationSCNN):
         return out
 
     def get_preds(self, batch):
-        inputs = (
-            batch["X0"],
-            batch["X1"],
-            batch["X2"],
-        )
+        inputs = [batch[f"X{i}"] for i in range(self.num_dims)]
         components = self.get_components_from_batch(batch)
 
         preds = self(inputs, components)

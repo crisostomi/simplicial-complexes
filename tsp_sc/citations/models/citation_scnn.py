@@ -12,13 +12,9 @@ class CitationSCNN(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
 
-        targets = (batch["Y0"], batch["Y1"], batch["Y2"])
+        targets = [batch[f"Y{d}"] for d in range(self.num_dims)]
 
-        train_indices = (
-            batch["train_indices_0"],
-            batch["train_indices_1"],
-            batch["train_indices_2"],
-        )
+        train_indices = [batch[f"train_indices_{d}"] for d in range(self.num_dims)]
 
         preds = self.get_preds(batch)
 
@@ -40,13 +36,9 @@ class CitationSCNN(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
 
-        targets = (batch["Y0"], batch["Y1"], batch["Y2"])
+        targets = [batch[f"Y{d}"] for d in range(self.num_dims)]
 
-        val_indices = (
-            batch["val_indices_0"],
-            batch["val_indices_1"],
-            batch["val_indices_2"],
-        )
+        val_indices = [batch[f"val_indices_{d}"] for d in range(self.num_dims)]
 
         preds = self.get_preds(batch)
 
@@ -68,12 +60,9 @@ class CitationSCNN(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         preds = self.get_preds(batch)
-        targets = (batch["Y0"], batch["Y1"], batch["Y2"])
-        test_indices = (
-            batch["test_indices_0"],
-            batch["test_indices_1"],
-            batch["test_indices_2"],
-        )
+
+        targets = [batch[f"Y{d}"] for d in range(self.num_dims)]
+        test_indices = [batch[f"test_indices_{d}"] for d in range(self.num_dims)]
 
         return {"preds": preds, "targets": targets, "test_indices": test_indices}
 
@@ -85,9 +74,7 @@ class CitationSCNN(pl.LightningModule):
         criterion = nn.L1Loss(reduction="mean")
         test_loss = torch.FloatTensor([0.0]).type_as(targets[0])
 
-        considered_simplex_dim = len(targets) - 1
-
-        for k in range(0, considered_simplex_dim + 1):
+        for k in range(0, self.num_dims):
             # compute the loss over the k-th dimension of the sample b (0 unless batch) over the known simplices
             dim_k_loss = criterion(
                 preds[k][0, test_indices[k]], targets[k][0, test_indices[k]]
@@ -115,10 +102,13 @@ class CitationSCNN(pl.LightningModule):
         :param batch:
         :return:
         """
-        S0, S1, S2 = None, batch["S1"][0], batch["S2"][0]
-        I0, I1, I2 = batch["I0"][0], batch["I1"][0], batch["I2"][0]
-        L0, L1, L2 = batch["L0"][0], batch["L1"][0], batch["L2"][0]
-        components = {"full": [L0, L1, L2], "irr": [I0, I1, I2], "sol": [S0, S1, S2]}
+
+        L = [batch[f"L{d}"][0] for d in range(self.num_dims)]
+        I = [batch[f"I{d}"][0] for d in range(self.num_dims)]
+        S = [None if d == 0 else batch[f"S{d}"][0] for d in range(self.num_dims)]
+
+        components = {"full": L, "irr": I, "sol": S}
+
         return components
 
     def compute_accuracy_margins(
@@ -135,16 +125,16 @@ class CitationSCNN(pl.LightningModule):
         return accuracies
 
     def compute_accuracy_margin(
-        self, preds, targets, margin, known_indices, only_missing_simplices
+        self, preds, targets, margin, test_indices, only_missing_simplices
     ):
         """
         returns the accuracy for each dimension by counting the number
         of hits over the total number of simplices of that dimension
         if only_missing_simplices is True, then the accuracy is computed only over the missing simplices
         """
-        known_indices_set = [
-            set([tens.item() for tens in known_indices[i]])
-            for i in range(len(known_indices))
+        test_indices_set = [
+            set([tens.item() for tens in test_indices[i]])
+            for i in range(len(test_indices))
         ]
 
         dims = len(targets)
@@ -162,7 +152,7 @@ class CitationSCNN(pl.LightningModule):
                 # if we only compute the accuracy over the missing simplices,
                 # then we skip this simplex if it is known
                 if only_missing_simplices:
-                    if j not in known_indices_set[k]:
+                    if j not in test_indices_set[k]:
                         continue
 
                 curr_value_pred = preds[k][0][j]

@@ -5,6 +5,7 @@ class CitationsDataset(Dataset):
     def __init__(
         self, inputs, targets, components, train_indices, val_indices, test_indices
     ):
+        self.num_dims = len(inputs)
         self.inputs = inputs
         self.targets = targets
         self.components = components
@@ -13,31 +14,37 @@ class CitationsDataset(Dataset):
         self.test_indices = test_indices
 
     def __getitem__(self, idx):
-        return {
-            "X0": self.inputs[0][idx],
-            "X1": self.inputs[1][idx],
-            "X2": self.inputs[2][idx],
-            "Y0": self.targets[0][idx],
-            "Y1": self.targets[1][idx],
-            "Y2": self.targets[2][idx],
-            "train_indices_0": self.train_indices[0][idx],
-            "train_indices_1": self.train_indices[1][idx],
-            "train_indices_2": self.train_indices[2][idx],
-            "val_indices_0": self.val_indices[0][idx],
-            "val_indices_1": self.val_indices[1][idx],
-            "val_indices_2": self.val_indices[2][idx],
-            "test_indices_0": self.test_indices[0][idx],
-            "test_indices_1": self.test_indices[1][idx],
-            "test_indices_2": self.test_indices[2][idx],
-            "L0": self.components["full"][0][idx],
-            "L1": self.components["full"][1][idx],
-            "L2": self.components["full"][2][idx],
-            "I0": self.components["irr"][0][idx],
-            "I1": self.components["irr"][1][idx],
-            "I2": self.components["irr"][2][idx],
-            "S1": self.components["sol"][1][idx],
-            "S2": self.components["sol"][2][idx],
+
+        X = {f"X{d}": self.inputs[d][idx] for d in range(self.num_dims)}
+        Y = {f"Y{d}": self.targets[d][idx] for d in range(self.num_dims)}
+
+        L = {f"L{d}": self.components["full"][d][idx] for d in range(self.num_dims)}
+        I = {f"I{d}": self.components["irr"][d][idx] for d in range(self.num_dims)}
+        S = {f"S{d}": self.components["sol"][d][idx] for d in range(1, self.num_dims)}
+
+        train_indices = {
+            f"train_indices_{d}": self.train_indices[d][idx]
+            for d in range(self.num_dims)
         }
+        val_indices = {
+            f"val_indices_{d}": self.val_indices[d][idx] for d in range(self.num_dims)
+        }
+        test_indices = {
+            f"test_indices_{d}": self.test_indices[d][idx] for d in range(self.num_dims)
+        }
+
+        batch = {
+            **X,
+            **Y,
+            **L,
+            **I,
+            **S,
+            **train_indices,
+            **val_indices,
+            **test_indices,
+        }
+
+        return batch
 
     def __len__(self):
         return len(self.inputs[0])

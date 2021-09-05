@@ -6,6 +6,10 @@ import os
 from tsp_sc.common.io import load_dict
 
 
+def num_params(model):
+    return sum(p.numel() for p in model.parameters())
+
+
 def similar(val_pred, val_true, margin):
     """
 Returns whether the predicted value is not further than margin*original_value from the original value

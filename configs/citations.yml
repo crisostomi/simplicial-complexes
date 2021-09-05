@@ -15,6 +15,9 @@ data:
   starting_node: original
   missing_value_ratio: 30
   batch_size: 1
+  add_component_signal: true
+  component_to_add: sol
+  noise_energy: 10
 
 run_params:
   max_epochs: 1000

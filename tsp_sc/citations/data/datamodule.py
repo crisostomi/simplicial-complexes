@@ -3,6 +3,7 @@ from torch.utils.data import DataLoader
 import numpy as np
 import random
 import math
+import scipy.sparse.linalg
 from tsp_sc.common.misc import Phases, unsqueeze_list
 from tsp_sc.citations.data.dataset import CitationsDataset
 from tsp_sc.common.datamodule import TopologicalDataModule
@@ -28,6 +29,10 @@ class CitationDataModule(TopologicalDataModule):
         super(CitationDataModule, self).__init__(paths, data_params)
 
         self.missing_value_ratio = data_params["missing_value_ratio"]
+        self.add_component_signal = data_params["add_component_signal"]
+        self.component_to_add = data_params["component_to_add"]
+
+        assert not self.add_component_signal or self.component_to_add is not None
 
         self.laplacians = self.load_laplacians(paths)
         self.boundaries = self.load_boundaries(paths)
@@ -36,6 +41,9 @@ class CitationDataModule(TopologicalDataModule):
         self.num_simplices = [L[0].shape[0] for L in self.laplacians]
 
         self.components = self.get_orthogonal_components()
+
+        if self.add_component_signal:
+            self.basis = self.get_sol_irr_basis()
 
         self.normalize_components()
 
@@ -103,9 +111,46 @@ class CitationDataModule(TopologicalDataModule):
         self.targets = self.prepare_targets()
         self.inputs = self.prepare_input()
 
+        if self.add_component_signal:
+            self.add_signal_component(
+                self.component_to_add, data_params["noise_energy"]
+            )
+
         self.datasets = self.get_datasets()
 
         self.validate()
+
+    def get_sol_irr_basis(self):
+
+        irr_basis = [
+            scipy.sparse.linalg.eigsh(self.components["irr"][dim][0])[1]
+            for dim in range(self.considered_simplex_dim + 1)
+        ]
+
+        sol_basis = [None] + [
+            scipy.sparse.linalg.eigsh(self.components["sol"][dim][0])[1]
+            for dim in range(1, self.considered_simplex_dim + 1)
+        ]
+
+        basis = {"sol": sol_basis, "irr": irr_basis}
+        return basis
+
+    def add_signal_component(self, component, noise_energy):
+
+        orthog_component = "sol" if component == "irr" else "irr"
+
+        for dim in range(1, self.considered_simplex_dim + 1):
+            n = self.num_simplices[dim]
+
+            noise = noise_energy * np.random.rand(n) * self.inputs[dim][0].numpy()
+
+            basis = self.basis[orthog_component][dim]
+
+            signal_over_component = (np.identity(n) - basis @ basis.transpose()) @ noise
+            signal_over_component = signal_over_component.astype("float32")
+
+            self.inputs[dim][0] = self.inputs[dim][0] + signal_over_component
+            self.targets[dim][0] = self.targets[dim][0] + signal_over_component
 
     def split_val_test(self, missing_indices):
         val_ratio = 0.3

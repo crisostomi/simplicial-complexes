@@ -1,0 +1,23 @@
+paths:
+  data: data/citations
+  complex: data/citations/collaboration_complex/STARTINGNODE
+  laplacians: data/citations/collaboration_complex/STARTINGNODE/laplacians.npy
+  boundaries: data/citations/collaboration_complex/STARTINGNODE/boundaries.npy
+  citations: data/citations/collaboration_complex/STARTINGNODE/cochains.npy
+  input_damaged: data/citations/collaboration_complex/STARTINGNODE/percentage_MISSINGVALUERATIO_input_damaged.npy
+  known_values: data/citations/collaboration_complex/STARTINGNODE/percentage_MISSINGVALUERATIO_known_values.npy
+  missing_values: data/citations/collaboration_complex/STARTINGNODE/percentage_MISSINGVALUERATIO_missing_values.npy
+  simplices: data/citations/collaboration_complex/STARTINGNODE/simplices.npy
+
+data:
+  max_simplex_dim: 10
+  considered_simplex_dim: 4
+  starting_node: original
+  missing_value_ratio: 30
+  batch_size: 1
+
+run_params:
+  gpus: 1
+  random_state: 1337
+
+

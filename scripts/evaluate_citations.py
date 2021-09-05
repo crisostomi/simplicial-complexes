@@ -13,6 +13,7 @@ from pytorch_lightning.callbacks import EarlyStopping
 
 pl.seed_everything(seed=42)
 
+
 wandb.login()
 
 parser = argparse.ArgumentParser()
@@ -38,7 +39,8 @@ paths = get_paths(path_params, data_params)
 
 data_module = CitationDataModule(paths, data_params)
 
-model_names = list(model_params.keys())
+# model_names = list(model_params.keys())
+model_names = ["my_scnn_sol", "my_scnn_irr"]
 
 for model_name in model_names:
     model_params[model_name]["considered_simplex_dim"] = data_params[
@@ -55,8 +57,9 @@ for model_name in model_names:
         mode="min",
     )
     run_config = get_run_config(model_name, config)
-    wandb_logger = WandbLogger(name=model_name, project="TSP-SC v3", config=run_config)
+    wandb_logger = WandbLogger(name=model_name, project="dummy", config=run_config)
     wandb_logger.watch(model)
+    wandb_logger.log_hyperparams({"num_params": num_params(model)})
 
     trainer = Trainer(
         max_epochs=run_params["max_epochs"],

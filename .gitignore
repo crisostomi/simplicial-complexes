@@ -6,3 +6,8 @@
 /data/inter_order/raw/
 /data/citations/bipartite_graph/
 /data/graph-classification/
+/data/
+/data/*
+/dummy/*
+/TSP-SC final/
+/wandb/

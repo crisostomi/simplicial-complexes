@@ -3,6 +3,7 @@ from scipy.linalg import null_space
 import pytorch_lightning as pl
 from tsp_sc.common.simplices import normalize_laplacian
 from tsp_sc.common.misc import coo2tensor
+from scipy.sparse import linalg
 
 
 class TopologicalDataModule(pl.LightningDataModule):
@@ -10,6 +11,7 @@ class TopologicalDataModule(pl.LightningDataModule):
         super(TopologicalDataModule, self).__init__()
         self.consider_last_dim_upper_adj = self.get_last_dim_upper_adj_flag(data_params)
         self.considered_simplex_dim = data_params["considered_simplex_dim"]
+        self.max_simplex_dim = data_params["max_simplex_dim"]
         self.batch_size = data_params["batch_size"]
 
     def get_orthogonal_components(self):
@@ -18,7 +20,7 @@ class TopologicalDataModule(pl.LightningDataModule):
             "full": self.laplacians,
             "sol": self.get_solenoidal_component(),
             "irr": self.get_irrotational_component(),
-            "har": self.get_harmonic_component(),
+            "har": None,
         }
 
         return components
@@ -69,11 +71,19 @@ class TopologicalDataModule(pl.LightningDataModule):
 
     def normalize_components(self):
         for k in range(0, self.considered_simplex_dim + 1):
+            lap_largest_eigenvalue = linalg.eigsh(
+                self.components["full"][k][0],
+                k=1,
+                which="LM",
+                return_eigenvectors=False,
+            )[0]
             for comp in ["sol", "irr", "full"]:
                 if self.components[comp][k] is not None:
                     for i in range(self.num_complexes):
                         normalized = normalize_laplacian(
-                            self.components[comp][k][i], half_interval=True
+                            self.components[comp][k][i],
+                            lap_largest_eigenvalue,
+                            half_interval=True,
                         )
                         self.components[comp][k][i] = coo2tensor(normalized)
 

@@ -3,9 +3,16 @@ from torch.utils.data import Dataset
 
 class CitationsDataset(Dataset):
     def __init__(
-        self, inputs, targets, components, train_indices, val_indices, test_indices
+        self,
+        inputs,
+        targets,
+        components,
+        train_indices,
+        val_indices,
+        test_indices,
+        considered_simplex_dim,
     ):
-        self.num_dims = len(inputs)
+        self.num_dims = considered_simplex_dim + 1
         self.inputs = inputs
         self.targets = targets
         self.components = components

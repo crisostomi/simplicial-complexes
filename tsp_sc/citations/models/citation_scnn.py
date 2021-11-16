@@ -1,4 +1,6 @@
 import pytorch_lightning as pl
+import wandb
+
 from tsp_sc.common.misc import similar
 import torch
 import torch.nn as nn
@@ -28,10 +30,10 @@ class CitationSCNN(pl.LightningModule):
             dim_k_loss = criterion(
                 preds[k][0, train_indices[k]], targets[k][0, train_indices[k]]
             )
-            self.log(f"train_loss_dim_{k}", dim_k_loss, on_epoch=True, logger=True)
+            self.log(f"train/loss_dim_{k}", dim_k_loss, on_epoch=True, logger=True)
             loss += dim_k_loss
 
-        self.log("train_loss", loss, on_epoch=True, logger=True, prog_bar=True)
+        self.log("train/loss", loss, on_epoch=True, logger=True, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -53,9 +55,13 @@ class CitationSCNN(pl.LightningModule):
                 preds[k][0, val_indices[k]], targets[k][0, val_indices[k]]
             )
             val_loss += dim_k_loss
-            self.log(f"val_loss_dim_{k}", dim_k_loss, on_epoch=True, logger=True)
+            self.log(f"val/loss_dim_{k}", dim_k_loss, on_epoch=True, logger=True)
+            val_diff = preds[k][0, val_indices[k]] - targets[k][0, val_indices[k]]
+            self.trainer.logger.experiment.log(
+                {f"val_diff/diff_dim_{k}": wandb.Histogram(val_diff.cpu())}
+            )
 
-        self.log("val_loss", val_loss, on_epoch=True, logger=True, prog_bar=True)
+        self.log("val/loss", val_loss, on_epoch=True, logger=True, prog_bar=True)
         return val_loss
 
     def test_step(self, batch, batch_idx):
@@ -80,11 +86,11 @@ class CitationSCNN(pl.LightningModule):
                 preds[k][0, test_indices[k]], targets[k][0, test_indices[k]]
             )
             test_loss += dim_k_loss
-            self.log(f"test_loss_dim_{k}", dim_k_loss, logger=True)
+            self.log(f"test/loss_dim_{k}", dim_k_loss, logger=True)
 
-        self.log("test_loss", test_loss, logger=True)
+        self.log("test/loss", test_loss, logger=True)
 
-        margins = [0.3, 0.2, 0.1]
+        margins = [0.3]
         only_missing_simplices = True
 
         accuracies = self.compute_accuracy_margins(

@@ -3,7 +3,7 @@ import argparse
 from tsp_sc.common.io import *
 from tsp_sc.common.misc import *
 from tsp_sc.citations.utils.citations import get_paths
-from tsp_sc.citations.utils.utils import get_model
+from tsp_sc.citations.utils.utils import get_model, fix_dict_in_config
 from tsp_sc.citations.data.datamodule import CitationDataModule
 from pytorch_lightning import Trainer
 import wandb
@@ -17,8 +17,9 @@ pl.seed_everything(seed=42)
 wandb.login()
 
 parser = argparse.ArgumentParser()
-parser.add_argument("config")
+parser.add_argument("--config")
 parser.add_argument("--starting_node")
+
 cli_args = parser.parse_args()
 
 config = load_config(cli_args.config)
@@ -40,25 +41,34 @@ paths = get_paths(path_params, data_params)
 data_module = CitationDataModule(paths, data_params)
 
 # model_names = list(model_params.keys())
-model_names = ["my_scnn_sol", "my_scnn_irr"]
+# model_names = ["my_scnn_sol", "my_scnn_irr"]
+model_names = ["my_scnn_mlp"]
+
 
 for model_name in model_names:
     model_params[model_name]["considered_simplex_dim"] = data_params[
         "considered_simplex_dim"
     ]
 
-    model = get_model(model_name, model_params[model_name])
+    wandb.init(config=config)
+    fix_dict_in_config(wandb)
+
+    model_params = wandb.config["models"][model_name]
+
+    model = get_model(model_name, model_params)
 
     early_stopping_callback = EarlyStopping(
-        monitor="val_loss",
+        monitor="val/loss",
         min_delta=run_params["min_delta"],
         patience=run_params["patience"],
         verbose=False,
         mode="min",
     )
+
     run_config = get_run_config(model_name, config)
     wandb_logger = WandbLogger(name=model_name, project="dummy", config=run_config)
-    wandb_logger.watch(model)
+
+    # wandb_logger.watch(model, log_freq=500)
     wandb_logger.log_hyperparams({"num_params": num_params(model)})
 
     trainer = Trainer(

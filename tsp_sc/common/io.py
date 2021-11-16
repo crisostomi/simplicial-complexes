@@ -25,6 +25,33 @@ def add_cli_args(config, cli_args):
         config["data"]["starting_node"] = cli_args.starting_node
 
 
+# def load_config(config_path, cli_args):
+#
+#     with open(config_path) as file:
+#         config = yaml.safe_load(file)
+#     print(config)
+#
+#     for k_1, v_1 in config.items():
+#
+#         if type(v_1) == dict:
+#             for k_2, v_2 in v_1.items():
+#
+#                 if type(v_2) == dict:
+#                     for k_3, v_3 in v_2.items():
+#
+#                         if k_3 in cli_args.__dict__:
+#                             config[k_1][k_2][k_3] = cli_args.__dict__[k_3]
+#                 else:
+#                     if k_2 in cli_args.__dict__:
+#                         config[k_1][k_2] = cli_args.__dict__[k_2]
+#         else:
+#             if k_1 in cli_args.__dict__:
+#                 config[k_1] = cli_args.__dict__[k_1]
+#
+#     print(config)
+#     return config
+
+
 def load_config(config_path):
 
     with open(config_path) as file:

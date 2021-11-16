@@ -195,7 +195,7 @@ def create_node_triangle_adj_matrix(nodes, triangles):
     return torch.tensor(adj.todense())
 
 
-def normalize_laplacian(L, half_interval=False):
+def normalize_laplacian(L, eigenval, half_interval=False):
     """
         Returns the laplacian normalized by the largest eigenvalue
     """
@@ -206,14 +206,14 @@ def normalize_laplacian(L, half_interval=False):
     assert M == L.shape[1]
 
     # take the first eigenvalue of the Laplacian, i.e. the largest
-    largest_eigenvalue = linalg.eigsh(L, k=1, which="LM", return_eigenvectors=False)[0]
+    # largest_eigenvalue = linalg.eigsh(L, k=1, which="LM", return_eigenvectors=False)[0]
 
     L_normalized = L.copy()
 
     if half_interval:
-        L_normalized *= 1.0 / largest_eigenvalue
+        L_normalized *= 1.0 / eigenval
     else:
-        L_normalized *= 2.0 / largest_eigenvalue
+        L_normalized *= 2.0 / eigenval
         L_normalized.setdiag(L_normalized.diagonal(0) - np.ones(M), 0)
 
     return L_normalized

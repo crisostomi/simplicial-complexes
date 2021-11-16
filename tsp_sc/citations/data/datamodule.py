@@ -8,6 +8,9 @@ from tsp_sc.common.misc import Phases, unsqueeze_list
 from tsp_sc.citations.data.dataset import CitationsDataset
 from tsp_sc.common.datamodule import TopologicalDataModule
 
+torch.set_printoptions(edgeitems=100, threshold=100)
+np.set_printoptions(edgeitems=100, threshold=100)
+
 
 class CitationDataModule(TopologicalDataModule):
     """
@@ -40,10 +43,10 @@ class CitationDataModule(TopologicalDataModule):
         self.num_complexes = len(self.laplacians[0])
         self.num_simplices = [L[0].shape[0] for L in self.laplacians]
 
+        print(self.num_simplices)
         self.components = self.get_orthogonal_components()
 
-        if self.add_component_signal:
-            self.basis = self.get_sol_irr_basis()
+        # self.basis = self.get_sol_irr_basis()
 
         self.normalize_components()
 
@@ -56,8 +59,7 @@ class CitationDataModule(TopologicalDataModule):
         # the dictionary's keys are the known d-simplices
         # the dictionary's values are their indices in the Laplacian and boundaries
         self.known_simplices = np.load(paths["known_values"], allow_pickle=True,)
-
-        # analogously missing_simplices has as keys the missing  d -simplices
+        # analogously missing_simplices has as keys the missing d-simplices
         self.missing_simplices = np.load(paths["missing_values"], allow_pickle=True)
 
         # target is a list of dictionaries, one per dimension d.
@@ -76,32 +78,32 @@ class CitationDataModule(TopologicalDataModule):
         # of dimension d.
         self.known_indices = [
             list(self.known_simplices[d].values())
-            for d in range(self.considered_simplex_dim + 1)
+            for d in range(self.max_simplex_dim + 1)
         ]
 
         # Analogously, missing_indices[d] contains the list
         # of indices for the missing simplices of dimension d.
         self.missing_indices = [
             list(self.missing_simplices[d].values())
-            for d in range(self.considered_simplex_dim + 1)
+            for d in range(self.max_simplex_dim + 1)
         ]
 
         # Sort both input and target following the ordering of the keys in simplices
         self.sorted_input = [
             {key: int(inputs[k][key]) for key, _ in simplices[k].items()}
-            for k in range(0, self.considered_simplex_dim + 1)
+            for k in range(0, self.max_simplex_dim + 1)
         ]
         self.sorted_target = [
             {key: int(targets[k][key]) for key, _ in simplices[k].items()}
-            for k in range(0, self.considered_simplex_dim + 1)
+            for k in range(0, self.max_simplex_dim + 1)
         ]
         self.sorted_input_values = [
             list(self.sorted_input[k].values())
-            for k in range(0, self.considered_simplex_dim + 1)
+            for k in range(0, self.max_simplex_dim + 1)
         ]
         self.sorted_target_values = [
             list(self.sorted_target[k].values())
-            for k in range(0, self.considered_simplex_dim + 1)
+            for k in range(0, self.max_simplex_dim + 1)
         ]
 
         self.train_indices = self.known_indices
@@ -111,10 +113,10 @@ class CitationDataModule(TopologicalDataModule):
         self.targets = self.prepare_targets()
         self.inputs = self.prepare_input()
 
+        # self.validate_hodge_decomposition()
+
         if self.add_component_signal:
-            self.add_signal_component(
-                self.component_to_add, data_params["noise_energy"]
-            )
+            self.project_signal_component(self.component_to_add)
 
         self.datasets = self.get_datasets()
 
@@ -122,17 +124,30 @@ class CitationDataModule(TopologicalDataModule):
 
     def get_sol_irr_basis(self):
 
-        irr_basis = [
-            scipy.sparse.linalg.eigsh(self.components["irr"][dim][0])[1]
+        irr_eigendecompositions = [
+            scipy.sparse.linalg.eigsh(self.components["irr"][dim][0])
             for dim in range(self.considered_simplex_dim + 1)
         ]
 
-        sol_basis = [None] + [
-            scipy.sparse.linalg.eigsh(self.components["sol"][dim][0])[1]
+        irr_basis = [eigenvecs for eigenvals, eigenvecs in irr_eigendecompositions]
+        irr_eigenvals = [eigenvals for eigenvals, eigenvecs in irr_eigendecompositions]
+
+        sol_eigendecompositions = [
+            scipy.sparse.linalg.eigsh(self.components["sol"][dim][0])
             for dim in range(1, self.considered_simplex_dim + 1)
         ]
 
-        basis = {"sol": sol_basis, "irr": irr_basis}
+        sol_basis = [None] + [
+            eigenvecs for eigenvals, eigenvecs in sol_eigendecompositions
+        ]
+
+        sol_eigenvals = [eigenvals for eigenvals, eigenvecs in sol_eigendecompositions]
+
+        har_basis = [
+            self.components["har"][dim] @ self.components["har"][dim].transpose()
+            for dim in range(self.considered_simplex_dim + 1)
+        ]
+        basis = {"sol": sol_basis, "irr": irr_basis, "har": har_basis}
         return basis
 
     def add_signal_component(self, component, noise_energy):
@@ -147,15 +162,81 @@ class CitationDataModule(TopologicalDataModule):
             basis = self.basis[orthog_component][dim]
 
             signal_over_component = (np.identity(n) - basis @ basis.transpose()) @ noise
+
             signal_over_component = signal_over_component.astype("float32")
 
             self.inputs[dim][0] = self.inputs[dim][0] + signal_over_component
             self.targets[dim][0] = self.targets[dim][0] + signal_over_component
 
+    # def project_signal_component(self, component):
+    #     proj_inputs = [self.inputs[0]] + [
+    #         None for i in range(self.considered_simplex_dim + 1)
+    #     ]
+    #     proj_targets = [self.targets[0]] + [
+    #         None for i in range(self.considered_simplex_dim + 1)
+    #     ]
+    #
+    #     if component == "sol":
+    #         for dim in range(1, self.considered_simplex_dim + 1):
+    #             proj_inputs[dim] = [
+    #                 torch.tensor(self.boundaries[dim + 1][0] @ self.inputs[dim + 1][0])
+    #             ]
+    #             proj_targets[dim] = [
+    #                 torch.tensor(self.boundaries[dim + 1][0] @ self.targets[dim + 1][0])
+    #             ]
+    #     elif component == "irr":
+    #         for dim in range(1, self.considered_simplex_dim + 1):
+    #             proj_inputs[dim] = [
+    #                 torch.tensor(
+    #                     self.boundaries[dim][0].transpose() @ self.inputs[dim - 1][0]
+    #                 )
+    #             ]
+    #             proj_targets[dim] = [
+    #                 torch.tensor(
+    #                     self.boundaries[dim][0].transpose() @ self.targets[dim - 1][0]
+    #                 )
+    #             ]
+    #     else:
+    #         raise NotImplementedError
+    #
+    #     self.inputs = proj_inputs
+    #     self.targets = proj_targets
+
+    def project_signal_component(self, component):
+
+        for dim in range(1, self.considered_simplex_dim + 1):
+
+            basis = self.basis[component][dim]
+
+            projector = basis @ basis.transpose()
+            signal_over_component = projector @ self.inputs[dim][0].numpy()
+            target_over_component = projector @ self.targets[dim][0].numpy()
+
+            self.inputs[dim][0] = torch.tensor(signal_over_component.astype("float32"))
+            self.targets[dim][0] = torch.tensor(target_over_component.astype("float32"))
+
+    def validate_hodge_decomposition(self):
+        tol = 1e-4
+
+        for dim in range(1, self.considered_simplex_dim + 1):
+            irr = torch.tensor(
+                self.boundaries[dim][0].transpose() @ self.inputs[dim - 1][0]
+            )
+            sol = torch.tensor(self.boundaries[dim + 1][0] @ self.inputs[dim + 1][0])
+            har = torch.tensor(self.basis["har"][dim]) @ self.inputs[dim][0]
+
+            recomposed_signal = irr + sol + har
+            print(recomposed_signal)
+            print(self.inputs[dim][0])
+
+            comparison = np.abs(recomposed_signal - self.inputs[dim][0]) <= tol
+            assert comparison.all()
+
     def split_val_test(self, missing_indices):
         val_ratio = 0.3
         val_indices = []
         test_indices = []
+
         for k in range(self.considered_simplex_dim + 1):
             k_dim_missing_indices = missing_indices[k]
             random.shuffle(k_dim_missing_indices)
@@ -192,7 +273,7 @@ class CitationDataModule(TopologicalDataModule):
         laplacians = np.load(paths["laplacians"], allow_pickle=True).tolist()
 
         # laplacians[k] has shape (num_complexes, num_simplex_dim_k, num_simplex_dim_k)
-        laplacians = [[L] for L in laplacians[: self.considered_simplex_dim + 1]]
+        laplacians = [[L] for L in laplacians]
         return laplacians
 
     def load_boundaries(self, paths: dict):
@@ -207,9 +288,7 @@ class CitationDataModule(TopologicalDataModule):
         boundaries = np.load(paths["boundaries"], allow_pickle=True).tolist()
 
         # boundaries[k] has shape (num_complexes, num_simplex_dim_k-1, num_simplex_dim_k)
-        boundaries = [[None]] + [
-            [B] for B in boundaries[: self.considered_simplex_dim + 1]
-        ]
+        boundaries = [[None]] + [[B] for B in boundaries]
         return boundaries
 
     def train_dataloader(self):
@@ -232,6 +311,7 @@ class CitationDataModule(TopologicalDataModule):
                 self.train_indices,
                 self.val_indices,
                 self.test_indices,
+                self.considered_simplex_dim,
             )
         }
         return datasets
@@ -243,7 +323,7 @@ class CitationDataModule(TopologicalDataModule):
         targets = []
 
         # TODO: handle batching
-        for k in range(0, self.considered_simplex_dim + 1):
+        for k in range(0, self.max_simplex_dim + 1):
             batch_targets = []
             for b in range(0, self.batch_size):
                 # shape (num_simplices_dim_k)
@@ -264,7 +344,7 @@ class CitationDataModule(TopologicalDataModule):
         inputs = []
 
         # TODO: handle batching
-        for k in range(0, self.considered_simplex_dim + 1):
+        for k in range(0, self.max_simplex_dim + 1):
             batch_inputs = []
             for b in range(self.batch_size):
                 # shape (num_simplices_dim_k)

@@ -28,11 +28,13 @@ class MySCNN(CitationSCNN):
         self.filter_size = params["filter_size"]
         self.num_filters = params["num_filters"]
         self.variance = params["variance"]
+        self.learning_rate = params["learning_rate"]
 
         self.num_layers = 3
         self.num_dims = self.considered_simplex_dim + 1
+
         self.layers = [f"l{i}" for i in range(1, self.num_layers + 1)]
-        self.dims = [f"d{i}" for i in range(self.considered_simplex_dim + 1)]
+        self.dims = [f"d{i}" for i in range(self.num_dims)]
         self.comps = ["sol", "irr"]
 
         self.C = nn.ModuleDict(
@@ -153,6 +155,12 @@ class MySCNN(CitationSCNN):
 
         if self.keep_separated:
 
+            if self.component_to_use != "both":
+                comps = {
+                    f"d{dim}": ["irr"] if dim == 0 else [self.component_to_use]
+                    for dim in dims
+                }
+
             outs = {f"l{layer}": {f"d{dim}": {} for dim in dims} for layer in layers}
             outs["l0"] = {
                 f"d{dim}": {comp: inputs[dim] for comp in comps[f"d{dim}"]}
@@ -203,7 +211,8 @@ class MySCNN(CitationSCNN):
             component: string, 'full', 'sol' or 'irr'
     """
         convolution = self.C[f"l{layer}"][f"d{dim}"][component]
-        return convolution(components[component][dim], input)
+        conv = convolution(components[component][dim], input)
+        return conv
 
     def merge_components(self, outs):
         """
@@ -223,7 +232,7 @@ class MySCNN(CitationSCNN):
                 self.aggregate(
                     [outs["l3"][f"d{dim}"]["sol"], outs["l3"][f"d{dim}"]["irr"]],
                     layer=3,
-                    dim=1,
+                    dim=dim,
                 )
                 for dim in range(1, self.num_dims)
             ]
@@ -269,8 +278,4 @@ class MySCNN(CitationSCNN):
         return preds
 
     def configure_optimizers(self):
-        if not self.keep_separated and self.aggregation == "MLP":
-            lr = 5e-3
-        else:
-            lr = 1e-3
-        return torch.optim.Adam(self.parameters(), lr=lr)
+        return torch.optim.Adam(self.parameters(), lr=self.learning_rate)

@@ -1,0 +1,27 @@
+paths:
+  data: data/graph-classification
+  raw: data/graph-classification/raw
+  laplacians: data/graph-classification/preprocessed/DATASET/laplacians.npy
+  boundaries: data/graph-classification/preprocessed/DATASET/boundaries.npy
+  signals: data/graph-classification/preprocessed/DATASET/signals.npy
+
+data:
+  max_simplex_dim: 2
+  considered_simplex_dim: 2
+  batch_size: 2
+  dataset: PROTEINS
+
+run_params:
+  max_epochs: 10
+  gpus: 1
+  random_state: 1337
+
+models:
+  classification_scnn:
+    filter_size: 5
+    colors: 1
+    aggregation: sum # possible values: 'sum', 'MLP'
+    component_to_use: both # possible values: 'both', 'sol', 'irr'
+    keep_separated: false
+
+

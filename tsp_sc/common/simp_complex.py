@@ -1,91 +1,36 @@
-"""
-Copyright (c) 2020 Matthias Fey <matthias.fey@tu-dortmund.de>
-Copyright (c) 2021 The CWN Project Authors
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-"""
-
+from scipy.sparse import coo_matrix
+from scipy.linalg import null_space
+from tsp_sc.common.simplices import normalize_laplacian
+from tsp_sc.common.misc import coo2tensor
+from scipy.sparse import linalg
 import torch
+from typing import List
+from torch import Tensor
+from torch_sparse import SparseTensor
+from tsp_sc.common.utils import block_diagonal
 import logging
 import copy
 
-from torch import Tensor
-from torch_sparse import SparseTensor
 
-# from mp.cell_mp import CochainMessagePassingParams
-from torch_geometric.typing import Adj
-from typing import List
-from tsp_sc.common.simplices import (
-    get_index_from_boundary,
-    get_orientation_from_boundary,
-)
-
-
-class Cochain(object):
-    """
-    Class representing a cochain on k-dim simplices (i.e. vector-valued signals on k-dim simplices).
-    Args:
-        dim: dim of the simplices in the cochain
-        x: feature matrix, shape [num_simplices, num_features]; may not be available
-        upper_index: upper adjacency, matrix, shape [2, num_upper_connections];
-            may not be available, e.g. when `dim` is the top level dim of a complex
-        lower_index: lower adjacency, matrix, shape [2, num_lower_connections];
-            may not be available, e.g. when `dim` is 0
-        shared_boundaries: a tensor of shape (num_lower_adjacencies,) specifying the indices of
-            the shared boundary for each lower adjacency
-        shared_coboundaries: a tensor of shape (num_upper_adjacencies,) specifying the indices of
-            the shared coboundary for each upper adjacency
-        boundary_index: boundary adjacency, matrix, shape [2, num_boundaries_connections];
-            may not be available, e.g. when `dim` is 0
-        upper_orient: a tensor of shape (num_upper_adjacencies,) specifying the relative
-            orientation (+-1) with respect to the simplices from upper_index
-        lower_orient: a tensor of shape (num_lower_adjacencies,) specifying the relative
-            orientation (+-1) with respect to the simplices from lower_index
-        y: labels over simplices in the cochain, shape [num_simplices,]
-    """
-
+class Cochain:
     def __init__(
         self,
-        dim: int,
-        x: Tensor = None,
-        upper_index: Adj = None,
-        lower_index: Adj = None,
-        boundary_index: Adj = None,
-        upper_orient=None,
-        lower_orient=None,
+        dim,
+        signal=None,
         y=None,
+        complex_dim=None,
+        boundary=None,
+        coboundary=None,
         **kwargs,
     ):
-        if dim == 0:
-            assert lower_index is None
-            assert boundary_index is None
 
-        # Note, everything that is not of form __smth__ is made None during batching
-        # So dim must be stored like this.
+        # dim k: boundary = B_{k+1} coboundary = B_k^T
+
         self.__dim__ = dim
-        # TODO: check default for x
-        self.__x = x
-        self.upper_index = upper_index
-        self.lower_index = lower_index
-        self.boundary_index = boundary_index
-        self.y = y
-        self.upper_orient = upper_orient
-        self.lower_orient = lower_orient
-        self.__oriented__ = False
-        self.__hodge_laplacian__ = None
+        self.complex_dim = complex_dim
+        self.boundary = boundary
+        self.coboundary = coboundary
+        self.__signal = signal
         for key, item in kwargs.items():
             if key == "num_simplices":
                 self.__num_simplices__ = item
@@ -96,45 +41,121 @@ class Cochain(object):
             else:
                 self[key] = item
 
-    @staticmethod
-    def from_boundaries(dim, features=None, boundary=None, coboundary=None):
-        assert boundary is not None or coboundary is not None
-        upper_index = get_index_from_boundary(boundary)
-        lower_index = get_index_from_boundary(coboundary)
+        if self.boundary is not None or self.coboundary is not None:
+            self.laplacian = self.build_laplacian()
 
-        upper_orient = get_orientation_from_boundary(boundary)
-        lower_orient = get_orientation_from_boundary(coboundary)
+            self.solenoidal = self.get_solenoidal_component()
+            self.irrotational = self.get_irrotational_component()
 
-        cochain = Cochain(
-            dim,
-            features,
-            upper_index=upper_index,
-            lower_index=lower_index,
-            upper_orient=upper_orient,
-            lower_orient=lower_orient,
+            self.normalize_components()
+            self.represent_as_sparse_matrices()
+
+    def get_irrotational_component(self):
+        if self.dim == self.complex_dim:
+            return None
+
+        Btk_upper = self.boundary.transpose()
+        Bk_upper = self.boundary
+
+        BBt = Bk_upper @ Btk_upper
+        irr = coo_matrix(BBt)
+
+        return irr
+
+    def get_solenoidal_component(self):
+        if self.dim == 0:
+            return None
+
+        Btk = self.coboundary
+        Bk = self.coboundary.T
+
+        BtB = Btk @ Bk
+        sol = coo_matrix(BtB)
+
+        return sol
+
+    def normalize_components(self):
+        if self.laplacian.shape == (1, 1):
+            return
+
+        lap_largest_eigenvalue = linalg.eigsh(
+            self.laplacian, k=1, which="LM", return_eigenvectors=False,
+        )[0]
+
+        if self.dim != 0:
+            self.solenoidal = normalize_laplacian(
+                self.solenoidal, lap_largest_eigenvalue, half_interval=True,
+            )
+        if self.dim != self.complex_dim:
+            self.irrotational = normalize_laplacian(
+                self.irrotational, lap_largest_eigenvalue, half_interval=True,
+            )
+        self.laplacian = normalize_laplacian(
+            self.laplacian, lap_largest_eigenvalue, half_interval=True,
         )
-        return cochain
+
+    def build_laplacian(self):
+        # upper Laplacian B_{k+1} B_{k}^T
+        # lower Laplacian B_{k}^T B_k
+
+        if self.dim > 0 and self.dim < self.complex_dim:
+            upper = self.boundary @ self.boundary.T
+            lower = self.coboundary @ self.coboundary.T
+            return coo_matrix(lower + upper)
+
+        elif self.dim == 0:
+            upper = self.boundary @ self.boundary.T
+            return coo_matrix(upper)
+
+        else:
+            lower = self.coboundary @ self.coboundary.T
+            return coo_matrix(lower)
+
+    def represent_as_sparse_matrices(self):
+        self.boundary = self.to_torch_sparse_tensor(self.boundary)
+        self.coboundary = self.to_torch_sparse_tensor(self.coboundary)
+        self.laplacian = self.to_torch_sparse_tensor(self.laplacian)
+        self.irrotational = self.to_torch_sparse_tensor(self.irrotational)
+        self.solenoidal = self.to_torch_sparse_tensor(self.solenoidal)
+
+    @staticmethod
+    def to_torch_sparse_tensor(sparse_matrix):
+        if sparse_matrix is None:
+            return None
+        row = torch.Tensor(sparse_matrix.row)
+        col = torch.Tensor(sparse_matrix.col)
+        indices = torch.stack((row, col), dim=0)
+        data = torch.Tensor(sparse_matrix.data)
+        return torch.sparse_coo_tensor(indices=indices, values=data)
+
+    @property
+    def num_features(self):
+        """Returns the number of features per cell in the cochain."""
+        if self.signal is None:
+            return 0
+        return 1 if self.signal.dim() == 1 else self.signal.size(1)
 
     @property
     def dim(self):
-        """Returns the dimension of the simplices in this cochain.
+        """Returns the dimension of the cells in this cochain.
+
         This field should not have a setter. The dimension of a cochain cannot be changed.
         """
         return self.__dim__
 
     @property
-    def x(self):
+    def signal(self):
         """Returns the vector values (features) associated with the simplices."""
-        return self.__x
+        return self.__signal
 
-    @x.setter
-    def x(self, new_x):
-        """Sets the vector values (features) associated with the simplices."""
-        if new_x is None:
+    @signal.setter
+    def signal(self, new_signal):
+        """Sets the vector values (features) associated with the cells."""
+        if new_signal is None:
             logging.warning("Cochain features were set to None. ")
         else:
-            assert self.num_simplices == len(new_x)
-        self.__x = new_x
+            assert self.num_simplices == len(new_signal)
+        self.__signal = new_signal
 
     @property
     def keys(self):
@@ -160,40 +181,28 @@ class Cochain(object):
         Returns the dimension for which :obj:`value` of attribute
         :obj:`key` will get concatenated when creating batches.
         """
-        if key in [
-            "upper_index",
-            "lower_index",
-            "shared_boundaries",
-            "shared_coboundaries",
-            "boundary_index",
-        ]:
-            return -1
-        # by default, concatenate sparse matrices diagonally.
-        elif isinstance(value, SparseTensor):
+        if key in ["laplacian", "boundary", "coboundary", "solenoidal", "irrotational"]:
             return (0, 1)
-        return 0
+        else:
+            return 0
 
     def __inc__(self, key, value):
         """
         Returns the incremental count to cumulatively increase the value
         of the next attribute of :obj:`key` when creating batches.
         """
-        # TODO: value is not used in this method. Can it be removed?
-        if key in ["upper_index", "lower_index"]:
-            inc = self.num_simplices
-        elif key in ["shared_boundaries"]:
-            inc = self.num_simplices_down
-        elif key == "shared_coboundaries":
-            inc = self.num_simplices_up
-        elif key == "boundary_index":
-            boundary_inc = (
-                self.num_simplices_down if self.num_simplices_down is not None else 0
-            )
-            simplex_inc = self.num_simplices if self.num_simplices is not None else 0
-            inc = [[boundary_inc], [simplex_inc]]
+        if key in "boundary":
+            row_inc = self.num_simplices if self.num_simplices is not None else 0
+            col_inc = self.num_simplices_up if self.num_simplices_up is not None else 0
+            inc = [row_inc, col_inc]
+        elif key == "coboundary":
+            row_inc = self.num_simplices_up if self.num_simplices_up is not None else 0
+            col_inc = self.num_simplices if self.num_simplices is not None else 0
+            inc = [row_inc, col_inc]
+        elif key in ["laplacian", "solenoidal", "irrotational"]:
+            row_inc, col_inc = self.num_simplices, self.num_simplices
+            inc = [row_inc, col_inc]
         else:
-            inc = 0
-        if inc is None:
             inc = 0
 
         return inc
@@ -214,17 +223,13 @@ class Cochain(object):
         """Returns the number of simplices in the cochain."""
         if hasattr(self, "__num_simplices__"):
             return self.__num_simplices__
-        if self.x is not None:
-            return self.x.size(self.__cat_dim__("x", self.x))
-        if self.boundary_index is not None:
-            return int(self.boundary_index[1, :].max()) + 1
-        assert self.upper_index is None and self.lower_index is None
+        if self.signal is not None:
+            return self.signal.size(self.__cat_dim__("signal", self.signal))
         return None
 
     @num_simplices.setter
     def num_simplices(self, num_simplices):
         """Sets the number of simplices in the cochain."""
-        # TODO: Add more checks here
         self.__num_simplices__ = num_simplices
 
     @property
@@ -232,10 +237,8 @@ class Cochain(object):
         """Returns the number of simplices in the higher-dimensional cochain of co-dimension 1."""
         if hasattr(self, "__num_simplices_up__"):
             return self.__num_simplices_up__
-        elif self.shared_coboundaries is not None:
-            assert self.upper_index is not None
-            return int(self.shared_coboundaries.max()) + 1
-        assert self.upper_index is None
+        elif self.boundary is not None:
+            return self.boundary.shape[1]
         return 0
 
     @num_simplices_up.setter
@@ -243,30 +246,6 @@ class Cochain(object):
         """Sets the number of simplices in the higher-dimensional cochain of co-dimension 1."""
         # TODO: Add more checks here
         self.__num_simplices_up__ = num_simplices_up
-
-    @property
-    def num_simplices_down(self):
-        """Returns the number of simplices in the lower-dimensional cochain of co-dimension 1."""
-        if self.dim == 0:
-            return None
-        if hasattr(self, "__num_simplices_down__"):
-            return self.__num_simplices_down__
-        if self.lower_index is None:
-            return 0
-        raise ValueError("Cannot infer the number of simplices in the cochain below.")
-
-    @num_simplices_down.setter
-    def num_simplices_down(self, num_simplices_down):
-        """Sets the number of simplices in the lower-dimensional cochain of co-dimension 1."""
-        # TODO: Add more checks here
-        self.__num_simplices_down__ = num_simplices_down
-
-    @property
-    def num_features(self):
-        """Returns the number of features per simplex in the cochain."""
-        if self.x is None:
-            return 0
-        return 1 if self.x.dim() == 1 else self.x.size(1)
 
     def __apply__(self, item, func):
         if torch.is_tensor(item):
@@ -327,8 +306,9 @@ class Cochain(object):
 
 class CochainBatch(Cochain):
     """A datastructure for storing a batch of cochains.
+
     Similarly to PyTorch Geometric, the batched cochain consists of a big cochain formed of multiple
-    independent cochains on sets of disconnected simplices.
+    independent cochains on sets of disconnected cells.
     """
 
     def __init__(self, dim, batch=None, ptr=None, **kwargs):
@@ -363,6 +343,14 @@ class CochainBatch(Cochain):
         keys = list(set.union(*[set(data.keys) for data in data_list]))
         assert "batch" not in keys and "ptr" not in keys
 
+        sparse_keys = [
+            "boundary",
+            "laplacian",
+            "solenoidal",
+            "irrotational",
+            "coboundary",
+        ]
+
         batch = cls(data_list[0].dim)
         for key in data_list[0].__dict__.keys():
             if key[:2] != "__" and key[-2:] != "__":
@@ -376,27 +364,30 @@ class CochainBatch(Cochain):
 
         device = None
         slices = {key: [0] for key in keys}
-        cumsum = {key: [0] for key in keys}
+        cumsum = {
+            key: [torch.tensor(0)] if key not in sparse_keys else [torch.tensor([0, 0])]
+            for key in keys
+        }
         cat_dims = {}
+
         num_simplices_list = []
         num_simplices_up_list = []
         num_simplices_down_list = []
+
         for i, data in enumerate(data_list):
+
             for key in keys:
+
                 item = data[key]
 
                 if item is not None:
                     # Increase values by `cumsum` value.
                     cum = cumsum[key][-1]
-                    if isinstance(item, Tensor) and item.dtype != torch.bool:
+                    if isinstance(item, Tensor) and item.is_sparse:
+                        pass
+                    elif isinstance(item, Tensor) and item.dtype != torch.bool:
                         if not isinstance(cum, int) or cum != 0:
                             item = item + cum
-                    elif isinstance(item, SparseTensor):
-                        value = item.storage.value()
-                        if value is not None and value.dtype != torch.bool:
-                            if not isinstance(cum, int) or cum != 0:
-                                value = value + cum
-                            item = item.set_value(value, layout="coo")
                     elif isinstance(item, (int, float)):
                         item = item + cum
 
@@ -411,11 +402,12 @@ class CochainBatch(Cochain):
                     cat_dim = data.__cat_dim__(key, data[key])
                     cat_dims[key] = cat_dim
                     if isinstance(item, Tensor):
-                        size = item.size(cat_dim)
-                        device = item.device
-                    elif isinstance(item, SparseTensor):
-                        size = torch.tensor(item.sizes())[torch.tensor(cat_dim)]
-                        device = item.device()
+                        if item.is_sparse:
+                            size = torch.tensor(item.size())[torch.tensor(cat_dim)]
+                            device = item.device
+                        else:
+                            size = item.size(cat_dim)
+                            device = item.device
 
                     # TODO: do we really need slices, and, are we managing them correctly?
                     slices[key].append(size + slices[key][-1])
@@ -440,7 +432,9 @@ class CochainBatch(Cochain):
                 inc = data.__inc__(key, item)
                 if isinstance(inc, (tuple, list)):
                     inc = torch.tensor(inc)
+                    print(inc)
                 cumsum[key].append(inc + cumsum[key][-1])
+                print(cumsum)
 
             if hasattr(data, "__num_simplices__"):
                 num_simplices_list.append(data.__num_simplices__)
@@ -480,35 +474,22 @@ class CochainBatch(Cochain):
         for key in batch.keys:
             items = batch[key]
             item = items[0]
-            if isinstance(item, Tensor):
-                batch[key] = torch.cat(items, ref_data.__cat_dim__(key, item))
-            elif isinstance(item, SparseTensor):
+            if isinstance(item, Tensor) and item.is_sparse:
+                batch[key] = block_diagonal(*items)
+            elif isinstance(item, Tensor):
                 batch[key] = torch.cat(items, ref_data.__cat_dim__(key, item))
             elif isinstance(item, (int, float)):
                 batch[key] = torch.tensor(items)
 
-        return batch.contiguous()
+        return batch
 
     def __getitem__(self, idx):
         if isinstance(idx, str):
             return super(CochainBatch, self).__getitem__(idx)
         elif isinstance(idx, int):
-            # TODO: is the 'get_example' method needed for now?
-            # return self.get_example(idx)
             raise NotImplementedError
         else:
-            # TODO: is the 'index_select' method needed for now?
-            # return self.index_select(idx)
             raise NotImplementedError
-
-    def to_cochain_list(self) -> List[Cochain]:
-        r"""Reconstructs the list of :class:`torch_geometric.data.Data` objects
-        from the batch object.
-        The batch object must have been created via :meth:`from_data_list` in
-        order to be able to reconstruct the initial objects."""
-        # TODO: is the 'to_cochain_list' method needed for now?
-        # return [self.get_example(i) for i in range(self.num_cochains)]
-        raise NotImplementedError
 
     @property
     def num_cochains(self) -> int:
@@ -518,8 +499,9 @@ class CochainBatch(Cochain):
         return self.ptr.numel() + 1
 
 
-class Complex(object):
-    """Class representing a cochain complex or an attributed cellular complex.
+class SimplicialComplex:
+    """Class representing a cochain complex
+
     Args:
         cochains: A list of cochains forming the cochain complex
         y: A tensor of shape (1,) containing a label for the complex for complex-level tasks.
@@ -533,7 +515,7 @@ class Complex(object):
             raise ValueError("At least one cochain is required.")
         if dimension is None:
             dimension = len(cochains) - 1
-        if len(cochains) < dimension + 1:
+        if len(cochains) < dimension:
             raise ValueError(
                 f"Not enough cochains passed, "
                 f"expected {dimension + 1}, received {len(cochains)}"
@@ -543,33 +525,9 @@ class Complex(object):
         self.cochains = {i: cochains[i] for i in range(dimension + 1)}
         self.nodes = cochains[0]
         self.edges = cochains[1] if dimension >= 1 else None
-        self.two_simplices = cochains[2] if dimension >= 2 else None
+        self.triangles = cochains[2] if dimension >= 2 else None
 
         self.y = y
-
-        self._consolidate()
-        return
-
-    def _consolidate(self):
-        for dim in range(self.dimension + 1):
-            cochain = self.cochains[dim]
-            assert cochain.dim == dim
-            if dim < self.dimension:
-                upper_cochain = self.cochains[dim + 1]
-                num_simplices_up = upper_cochain.num_simplices
-                assert num_simplices_up is not None
-                if "num_simplices_up" in cochain:
-                    assert cochain.num_simplices_up == num_simplices_up
-                else:
-                    cochain.num_simplices_up = num_simplices_up
-            if dim > 0:
-                lower_cochain = self.cochains[dim - 1]
-                num_simplices_down = lower_cochain.num_simplices
-                assert num_simplices_down is not None
-                if "num_simplices_down" in cochain:
-                    assert cochain.num_simplices_down == num_simplices_down
-                else:
-                    cochain.num_simplices_down = num_simplices_down
 
     def to(self, device, **kwargs):
         """Performs tensor dtype and/or device conversion to cochains and label y, if set."""
@@ -580,112 +538,10 @@ class Complex(object):
             self.y = self.y.to(device, **kwargs)
         return self
 
-    #
-    # def get_cochain_params(
-    #     self,
-    #     dim: int,
-    #     max_dim: int = 2,
-    #     include_top_features=True,
-    #     include_down_features=True,
-    #     include_boundary_features=True,
-    # ) -> CochainMessagePassingParams:
-    #     """
-    #     Conveniently constructs all necessary input parameters to perform higher-dim
-    #     message passing on the cochain of specified `dim`.
-    #     Args:
-    #         dim: The dimension from which to extract the parameters
-    #         max_dim: The maximum dimension of interest.
-    #             This is only used in conjunction with include_top_features.
-    #         include_top_features: Whether to include the top features from level max_dim+1.
-    #         include_down_features: Include the features for down adjacency
-    #         include_boundary_features: Include the features for the boundary
-    #     Returns:
-    #         An object of type CochainMessagePassingParams
-    #     """
-    #     if dim in self.cochains:
-    #         simplices = self.cochains[dim]
-    #         x = simplices.x
-    #         # Add up features
-    #         upper_index, upper_features = None, None
-    #         # We also check that dim+1 does exist in the current complex. This cochain might have been
-    #         # extracted from a higher dimensional complex by a batching operation, and dim+1
-    #         # might not exist anymore even though simplices.upper_index is present.
-    #         if simplices.upper_index is not None and (dim + 1) in self.cochains:
-    #             upper_index = simplices.upper_index
-    #             if self.cochains[dim + 1].x is not None and (
-    #                 dim < max_dim or include_top_features
-    #             ):
-    #                 upper_features = torch.index_select(
-    #                     self.cochains[dim + 1].x,
-    #                     0,
-    #                     self.cochains[dim].shared_coboundaries,
-    #                 )
-    #
-    #         # Add down features
-    #         lower_index, lower_features = None, None
-    #         if include_down_features and simplices.lower_index is not None:
-    #             lower_index = simplices.lower_index
-    #             if dim > 0 and self.cochains[dim - 1].x is not None:
-    #                 lower_features = torch.index_select(
-    #                     self.cochains[dim - 1].x,
-    #                     0,
-    #                     self.cochains[dim].shared_boundaries,
-    #                 )
-    #         # Add boundary features
-    #         boundary_index, boundary_features = None, None
-    #         if include_boundary_features and simplices.boundary_index is not None:
-    #             boundary_index = simplices.boundary_index
-    #             if dim > 0 and self.cochains[dim - 1].x is not None:
-    #                 boundary_features = self.cochains[dim - 1].x
-    #
-    #         inputs = CochainMessagePassingParams(
-    #             x,
-    #             upper_index,
-    #             lower_index,
-    #             up_attr=upper_features,
-    #             down_attr=lower_features,
-    #             boundary_attr=boundary_features,
-    #             boundary_index=boundary_index,
-    #         )
-    #     else:
-    #         raise NotImplementedError(
-    #             "Dim {} is not present in the complex or not yet supported.".format(dim)
-    #         )
-    #     return inputs
-    #
-    # def get_all_cochain_params(
-    #     self,
-    #     max_dim: int = 2,
-    #     include_top_features=True,
-    #     include_down_features=True,
-    #     include_boundary_features=True,
-    # ) -> List[CochainMessagePassingParams]:
-    #     """Extracts the cochain parameters for message passing on the cochains up to max_dim.
-    #     Args:
-    #         max_dim: The maximum dimension of the complex for which to extract the parameters.
-    #         include_top_features: Whether to include the features from level max_dim+1.
-    #         include_down_features: Include the features for down adjacent simplices.
-    #         include_boundary_features: Include the features for the boundary simplices.
-    #     Returns:
-    #         A list of elements of type CochainMessagePassingParams.
-    #     """
-    #     all_params = []
-    #     return_dim = min(max_dim, self.dimension)
-    #     for dim in range(return_dim + 1):
-    #         all_params.append(
-    #             self.get_cochain_params(
-    #                 dim,
-    #                 max_dim=max_dim,
-    #                 include_top_features=include_top_features,
-    #                 include_down_features=include_down_features,
-    #                 include_boundary_features=include_boundary_features,
-    #             )
-    #         )
-    #     return all_params
-
     def get_labels(self, dim=None):
         """Returns target labels.
-        If `dim`==k (integer in [0, self.dimension]) then the labels over k-simplices are returned.
+
+        If `dim`==k (integer in [0, self.dimension]) then the labels over k-cells are returned.
         In the case `dim` is None the complex-wise label is returned.
         """
         if dim is None:
@@ -701,11 +557,11 @@ class Complex(object):
                 )
         return y
 
-    def set_xs(self, xs: List[Tensor]):
+    def set_signals(self, signals: List[Tensor]):
         """Sets the features of the cochains to the values in the list"""
-        assert (self.dimension + 1) >= len(xs)
-        for i, x in enumerate(xs):
-            self.cochains[i].x = x
+        assert (self.dimension + 1) >= len(signals)
+        for i, signal in enumerate(signals):
+            self.cochains[i].signal = signal
 
     @property
     def keys(self):
@@ -727,9 +583,11 @@ class Complex(object):
         return key in self.keys
 
 
-class ComplexBatch(Complex):
+class ComplexBatch(SimplicialComplex):
     """Class representing a batch of cochain complexes.
+
     This is stored as a single cochain complex formed of batched cochains.
+
     Args:
         cochains: A list of cochain batches that will be put together in a complex batch
         dimension: The dimension of the resulting complex.
@@ -750,9 +608,10 @@ class ComplexBatch(Complex):
 
     @classmethod
     def from_complex_list(
-        cls, data_list: List[Complex], follow_batch=[], max_dim: int = 2
+        cls, data_list: List[SimplicialComplex], follow_batch=[], max_dim: int = 2
     ):
         """Constructs a ComplexBatch from a list of complexes.
+
         Args:
             data_list: a list of complexes from which the batch is built.
             follow_batch: creates assignment batch vectors for each key in
@@ -767,6 +626,7 @@ class ComplexBatch(Complex):
         cochains = [list() for _ in range(dimension + 1)]
         label_list = list()
         per_complex_labels = True
+
         for comp in data_list:
             for dim in range(dimension + 1):
                 if dim not in comp.cochains:

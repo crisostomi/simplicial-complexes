@@ -163,9 +163,6 @@ class ClassificationSCNN(pl.LightningModule):
 
     def forward(self, inputs, components):
         """
-        If self.keep_separated, the intermediate layers outputs are kept separated, and are aggregated only in the final layer
-        Otherwise, these are summed in each layer
-
         parameters:
             components: dict of lists, keys: 'full' for the Laplacian, 'sol' for the solenoidal and 'irr' for irrotational component
                         for each component, there is a list of length self.dims containing for each dimension the component for that dimension
@@ -181,48 +178,23 @@ class ClassificationSCNN(pl.LightningModule):
         }
         last_layer = f"l{self.num_layers}"
 
-        if self.keep_separated:
+        outs = {f"l{layer}": {} for layer in layers}
+        outs["l0"] = {f"d{dim}": inputs[dim] for dim in dims}
 
-            outs = {f"l{layer}": {f"d{dim}": {} for dim in dims} for layer in layers}
-            outs["l0"] = {
-                f"d{dim}": {comp: inputs[dim] for comp in comps[f"d{dim}"]}
-                for dim in dims
-            }
+        for layer in layers[1:]:
+            for dim in dims:
+                prev_output = activactions[layer](outs[f"l{layer - 1}"][f"d{dim}"])
+                comp_outputs = [
+                    self.convolve(prev_output, components, layer, dim, comp)
+                    for comp in comps[f"d{dim}"]
+                ]
+                outs[f"l{layer}"][f"d{dim}"] = self.aggregate(comp_outputs, layer, dim)
 
-            for layer in layers[1:]:
-                for dim in dims:
-                    for comp in comps[f"d{dim}"]:
-                        prev_output = activactions[layer](
-                            outs[f"l{layer - 1}"][f"d{dim}"][comp]
-                        )
-                        outs[f"l{layer}"][f"d{dim}"][comp] = self.convolve(
-                            prev_output, components, layer, dim, comp
-                        )
-
-            final_out0 = outs[last_layer]["d0"]["irr"]
-            final_out1, final_out2 = self.merge_components(outs)
-
-        else:
-
-            outs = {f"l{layer}": {} for layer in layers}
-            outs["l0"] = {f"d{dim}": inputs[dim] for dim in dims}
-
-            for layer in layers[1:]:
-                for dim in dims:
-                    prev_output = activactions[layer](outs[f"l{layer - 1}"][f"d{dim}"])
-                    comp_outputs = [
-                        self.convolve(prev_output, components, layer, dim, comp)
-                        for comp in comps[f"d{dim}"]
-                    ]
-                    outs[f"l{layer}"][f"d{dim}"] = self.aggregate(
-                        comp_outputs, layer, dim
-                    )
-
-            final_out0, final_out1, final_out2 = (
-                outs[last_layer]["d0"],
-                outs[last_layer]["d1"],
-                outs[last_layer]["d2"],
-            )
+        final_out0, final_out1, final_out2 = (
+            outs[last_layer]["d0"],
+            outs[last_layer]["d1"],
+            outs[last_layer]["d2"],
+        )
 
         return [final_out0, final_out1, final_out2]
 
@@ -240,7 +212,7 @@ class ClassificationSCNN(pl.LightningModule):
     """
         convolution = self.C[f"l{layer}"][f"d{dim}"][component]
         # TODO: handle batching
-        return convolution(components[component][dim][0], input)
+        return convolution(components[component][dim], input)
 
     def merge_components(self, outs):
         """
@@ -296,7 +268,6 @@ class ClassificationSCNN(pl.LightningModule):
         return out
 
     def training_step(self, batch, batch_idx):
-        X0, X1, X2 = batch["X0"], batch["X1"], batch["X2"]
 
         preds = self.get_preds(batch)
 
@@ -307,20 +278,28 @@ class ClassificationSCNN(pl.LightningModule):
         return loss
 
     def get_preds(self, batch):
+        cochains = batch.cochains
+
         inputs = (
-            batch["X0"],
-            batch["X1"],
-            batch["X2"],
+            cochains[0]["signal"],
+            cochains[1]["signal"],
+            cochains[2]["signal"],
         )
-        components = self.get_components_from_batch(batch)
+
+        components = self.get_components_from_batch(cochains)
 
         preds = self(inputs, components)
         return preds
 
-    def get_components_from_batch(self, batch):
-        S0, S1, S2 = None, batch["S1"], batch["S2"]
-        I0, I1, I2 = batch["I0"], batch["I1"], None
-        L0, L1, L2 = batch["L0"], batch["L1"], batch["L2"]
+    def get_components_from_batch(self, cochains):
+
+        S0, S1, S2 = None, cochains[1]["solenoidal"], cochains[2]["solenoidal"]
+        I0, I1, I2 = cochains[0]["irrotational"], cochains[1]["irrotational"], None
+        L0, L1, L2 = (
+            cochains[0]["laplacian"],
+            cochains[1]["laplacian"],
+            cochains[2]["laplacian"],
+        )
         components = {"full": [L0, L1, L2], "irr": [I0, I1, I2], "sol": [S0, S1, S2]}
         return components
 

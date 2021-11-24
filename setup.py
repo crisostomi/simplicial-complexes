@@ -16,5 +16,6 @@ setup(
         "scripts/citations/create_complex.py",
         "scripts/citations/prepare_signals.py",
         "scripts/citations/create_synth_signal.py",
+        "scripts/dummy.py",
     ],
 )

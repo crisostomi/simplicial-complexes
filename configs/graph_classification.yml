@@ -8,18 +8,20 @@ paths:
 data:
   max_simplex_dim: 2
   considered_simplex_dim: 2
-  batch_size: 2
+  batch_size: 16
   dataset: PROTEINS
 
 run_params:
   max_epochs: 10
   gpus: 1
   random_state: 1337
+  min_delta: 0.1
+  patience: 50
 
 models:
   classification_scnn:
     filter_size: 5
-    colors: 1
+    colors: 3
     aggregation: sum # possible values: 'sum', 'MLP'
     component_to_use: both # possible values: 'both', 'sol', 'irr'
     keep_separated: false

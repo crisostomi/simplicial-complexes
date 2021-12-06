@@ -1,4 +1,8 @@
 import torch
+from torch_geometric.nn import global_mean_pool, global_add_pool
+import torch.nn.functional as F
+from torch_sparse import cat as sparse_cat
+from timeit import default_timer as timer
 
 
 def block_diagonal(*arrs):
@@ -13,6 +17,7 @@ def block_diagonal(*arrs):
             "arguments in the following positions must be 2-dimension tensor: %s"
             % bad_args
         )
+
     shapes = torch.tensor([a.shape for a in arrs])
     i = []
     v = []
@@ -44,8 +49,7 @@ def block_diagonal(*arrs):
 
 def sparse_slice(tensor, start, end):
     assert tensor.is_sparse
-    tensor = tensor.coalesce()
-    indices, values = tensor.indices(), tensor.values()
+    indices, values = tensor._indices(), tensor._values()
 
     row_start, col_start = start
     row_end, col_end = end
@@ -69,3 +73,55 @@ def sparse_slice(tensor, start, end):
     )
 
     return sparse_result
+
+
+def get_pooling_fn(readout):
+    if readout == "sum":
+        return global_add_pool
+    elif readout == "mean":
+        return global_mean_pool
+    else:
+        raise NotImplementedError(
+            "Readout {} is not currently supported.".format(readout)
+        )
+
+
+def get_nonlinearity(nonlinearity, return_module=True):
+    if nonlinearity == "relu":
+        module = torch.nn.ReLU
+        function = F.relu
+    elif nonlinearity == "elu":
+        module = torch.nn.ELU
+        function = F.elu
+    elif nonlinearity == "id":
+        module = torch.nn.Identity
+        function = lambda x: x
+    elif nonlinearity == "sigmoid":
+        module = torch.nn.Sigmoid
+        function = F.sigmoid
+    elif nonlinearity == "tanh":
+        module = torch.nn.Tanh
+        function = torch.tanh
+    else:
+        raise NotImplementedError(
+            "Nonlinearity {} is not currently supported.".format(nonlinearity)
+        )
+    if return_module:
+        return module
+    return function
+
+
+def sparse_flatten(tensor):
+    tensor = tensor.coalesce()
+
+    indices, values = tensor.indices(), tensor.values()
+    rows, cols = indices
+
+    num_cols = tensor.shape[1]
+
+    cols = rows * num_cols + cols
+
+    new_shape = (tensor.shape[0] * tensor.shape[1],)
+    return torch.sparse_coo_tensor(
+        indices=cols.unsqueeze(0), values=values, size=new_shape
+    )

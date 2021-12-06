@@ -1,16 +1,21 @@
 import argparse
+from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.callbacks import EarlyStopping
 
-from tsp_sc.common.io import load_config
+from tsp_sc.common.io import *
 from tsp_sc.common.misc import *
 from tsp_sc.graph_classification.utils import get_paths
 from tsp_sc.graph_classification.data.datamodule import GraphClassificationDataModule
-from tsp_sc.graph_classification.models.classification_scnn import ClassificationSCNN
 from pytorch_lightning import Trainer
-
+from tsp_sc.graph_classification.utils import get_model, load_dataset
+import wandb
+from tsp_sc.citations.utils.utils import fix_dict_in_config
 
 parser = argparse.ArgumentParser()
-parser.add_argument("config")
+parser.add_argument("--config")
 cli_args = parser.parse_args()
+
+wandb.login()
 
 config = load_config(cli_args.config)
 
@@ -28,9 +33,43 @@ paths = get_paths(path_params, data_params)
 
 data_module = GraphClassificationDataModule(paths, data_params)
 
-model = ClassificationSCNN(model_params["classification_scnn"])
+model_name = "classification_scnn"
 
-trainer = Trainer(max_epochs=run_params["max_epochs"], gpus=run_params["gpus"])
+wandb.init(config=config)
+fix_dict_in_config(wandb)
+
+model_params = wandb.config["models"][model_name]
+model_params["num_classes"] = data_module.dataset.num_classes
+model_params["num_features"] = data_module.dataset.num_features()
+
+model = get_model(model_name, model_params)
+
+early_stopping_callback = EarlyStopping(
+    monitor="val/loss",
+    min_delta=run_params["min_delta"],
+    patience=run_params["patience"],
+    verbose=False,
+    mode="min",
+)
+
+run_config = get_run_config(model_name, config)
+
+wandb_logger = WandbLogger(
+    name=model_name, project="complex-classification", config=run_config
+)
+trainer = Trainer(
+    max_epochs=run_params["max_epochs"],
+    min_epochs=run_params["min_epochs"],
+    gpus=run_params["gpus"],
+    logger=wandb_logger,
+    callbacks=[early_stopping_callback],
+    log_every_n_steps=1,
+)
+
+
 trainer.fit(model, data_module)
 
-# trainer.test(model)
+if data_module.test_dataloader() is not None:
+    trainer.test(model, test_dataloaders=data_module)
+
+wandb.finish()

@@ -1,6 +1,5 @@
 from torch_geometric.data import Dataset
 import copy
-import re
 from abc import ABC
 
 import torch
@@ -11,7 +10,6 @@ from itertools import repeat, product
 from tsp_sc.common.simp_complex import SimplicialComplex, Cochain
 from tsp_sc.common.utils import block_diagonal
 from torch import Tensor
-from torch_sparse import cat as sparse_cat
 
 
 class ComplexDataset(Dataset, ABC):
@@ -39,6 +37,7 @@ class ComplexDataset(Dataset, ABC):
 
         super(ComplexDataset, self).__init__(root, transform, pre_transform, pre_filter)
         self._num_classes = num_classes
+
         self.train_ids = None
         self.val_ids = None
         self.test_ids = None
@@ -74,18 +73,22 @@ class ComplexDataset(Dataset, ABC):
             self._look_up_num_features()
         return self._num_features[dim]
 
+    def num_features(self):
+        for dim in range(self.max_dim):
+            if self._num_features[dim] is None:
+                self._look_up_num_features()
+        return self._num_features
+
     def _look_up_num_features(self):
         """
         Set num features for each dimension. All complexes must have
         the same number of features for the same dimension.
         :return:
         """
-        for complex in self:
-            for dim in range(complex.dimension + 1):
-                if self._num_features[dim] is None:
-                    self._num_features[dim] = complex.cochains[dim].num_features
-                else:
-                    assert self._num_features[dim] == complex.cochains[dim].num_features
+        first_complex = self[0]
+        for dim in range(first_complex.dimension + 1):
+            if self._num_features[dim] is None:
+                self._num_features[dim] = first_complex.cochains[dim].num_features
 
     def get_idx_split(self):
         idx_split = {
@@ -146,10 +149,8 @@ class InMemoryComplexDataset(ComplexDataset):
         self.__data_list__ = None
 
     def len(self):
-        for dim in range(self.max_dim + 1):
-            for item in self.slices[dim].values():
-                return len(item) - 1
-        return 0
+        num_complexes = len(next(iter(self.slices[0].values()))) - 1
+        return num_complexes
 
     def get(self, idx):
 
@@ -162,6 +163,7 @@ class InMemoryComplexDataset(ComplexDataset):
                     return copy.copy(data)
 
         retrieved = [self._get_cochain(dim, idx) for dim in range(0, self.max_dim + 1)]
+
         cochains = [r[0] for r in retrieved if not r[1]]
 
         targets = self.data["labels"]
@@ -179,7 +181,7 @@ class InMemoryComplexDataset(ComplexDataset):
 
         dim = self.data["dims"][idx].item()
         assert dim == len(cochains) - 1
-        data = SimplicialComplex(*cochains, y=target)
+        data = SimplicialComplex(*cochains, y=target, dimension=dim)
 
         if hasattr(self, "__data_list__"):
             self.__data_list__[idx] = copy.copy(data)
@@ -212,6 +214,7 @@ class InMemoryComplexDataset(ComplexDataset):
             data[key] = None
             if torch.is_tensor(item) and item.is_sparse:
                 start, end = slices[idx], slices[idx + 1]
+                item = item.cuda()
                 data[key] = sparse_slice(item, start, end)
             else:
                 start, end = slices[idx].item(), slices[idx + 1].item()

@@ -1,19 +1,20 @@
 import torch.nn as nn
-from tsp_sc.common.misc import similar
 from tsp_sc.common.simplicial_convolution import MySimplicialConvolution
+from tsp_sc.common.simp_complex import ComplexBatch
 import torch
 import pytorch_lightning as pl
+from torch.nn import functional as F
+from tsp_sc.common.utils import get_pooling_fn, get_nonlinearity
+from torchmetrics import F1, Precision, Recall, Accuracy
 
 
 class ClassificationSCNN(pl.LightningModule):
     def __init__(self, params):
         """
-    parameters:
-        filter_size: size of the convolutional filter
-        colors: number of channels
-        aggregation: how to aggregate the convolution outputs, can 'sum' or 'MLP'
-        component_to_use: whether to use both components or one of the two, values can be 'both', 'sol' or 'irr'
-        keep_separated: whether to keep the intermediate layer outputs separated or to aggregate them
+        parameters:
+            filter_size: size of the convolutional filter
+            colors: number of channels
+            component_to_use: whether to use both components or one of the two, values can be 'both', 'sol' or 'irr'
     """
         super().__init__()
 
@@ -21,11 +22,22 @@ class ClassificationSCNN(pl.LightningModule):
         # if only one component is used, then they must be kept separated
         assert params["component_to_use"] == "both" or params["keep_separated"]
 
+        self.F1 = F1(average="micro")
+        self.prec = Precision(average="micro")
+        self.recall = Recall(average="micro")
+        self.accuracy = Accuracy()
+
         self.colors = params["colors"]
         self.aggregation = params["aggregation"]
         self.component_to_use = params["component_to_use"]
         self.keep_separated = params["keep_separated"]
         self.filter_size = params["filter_size"]
+        self.readout = params["readout"]
+        self.global_nonlinearity = params["global_nonlinearity"]
+        self.hidden_size = params["hidden_size"]
+        self.num_classes = params["num_classes"]
+        self.dropout_rate = params["dropout_rate"]
+        self.feature_dim = params["num_features"]
 
         num_filters = 30
         variance = 0.01
@@ -44,124 +56,131 @@ class ClassificationSCNN(pl.LightningModule):
         # degree 0 convolutions
         self.C["l1"]["d0"]["irr"] = MySimplicialConvolution(
             self.filter_size,
-            C_in=self.colors,
-            C_out=num_filters * self.colors,
+            C_in=self.feature_dim[0],
+            C_out=self.hidden_size,
             variance=variance,
         )
+
         self.C["l2"]["d0"]["irr"] = MySimplicialConvolution(
             self.filter_size,
-            C_in=num_filters * self.colors,
-            C_out=num_filters * self.colors,
+            C_in=self.hidden_size,
+            C_out=self.hidden_size,
             variance=variance,
         )
+
         self.C["l3"]["d0"]["irr"] = MySimplicialConvolution(
             self.filter_size,
-            C_in=num_filters * self.colors,
-            C_out=self.colors,
+            C_in=self.hidden_size,
+            C_out=self.hidden_size,
             variance=variance,
         )
 
         # degree 1 convolutions
         self.C["l1"]["d1"]["sol"] = MySimplicialConvolution(
             self.filter_size,
-            C_in=self.colors,
-            C_out=(num_filters // 2) * self.colors,
+            C_in=self.feature_dim[1],
+            C_out=self.hidden_size,
             variance=variance,
         )
+
         self.C["l2"]["d1"]["sol"] = MySimplicialConvolution(
             self.filter_size,
-            C_in=(num_filters // 2) * self.colors,
-            C_out=(num_filters // 2) * self.colors,
+            C_in=self.hidden_size,
+            C_out=self.hidden_size,
             variance=variance,
         )
+
         self.C["l3"]["d1"]["sol"] = MySimplicialConvolution(
             self.filter_size,
-            C_in=(num_filters // 2) * self.colors,
-            C_out=self.colors,
+            C_in=self.hidden_size,
+            C_out=self.hidden_size,
             variance=variance,
         )
 
         self.C["l1"]["d1"]["irr"] = MySimplicialConvolution(
             self.filter_size,
-            C_in=self.colors,
-            C_out=(num_filters // 2) * self.colors,
+            C_in=self.feature_dim[1],
+            C_out=self.hidden_size,
             variance=variance,
         )
+
         self.C["l2"]["d1"]["irr"] = MySimplicialConvolution(
             self.filter_size,
-            C_in=(num_filters // 2) * self.colors,
-            C_out=(num_filters // 2) * self.colors,
+            C_in=self.hidden_size,
+            C_out=self.hidden_size,
             variance=variance,
         )
+
         self.C["l3"]["d1"]["irr"] = MySimplicialConvolution(
             self.filter_size,
-            C_in=(num_filters // 2) * self.colors,
-            C_out=self.colors,
+            C_in=self.hidden_size,
+            C_out=self.hidden_size,
             variance=variance,
         )
 
         # degree 2 convolutions
         self.C["l1"]["d2"]["sol"] = MySimplicialConvolution(
             self.filter_size,
-            C_in=self.colors,
-            C_out=(num_filters // 2) * self.colors,
+            C_in=self.feature_dim[2],
+            C_out=self.hidden_size,
             variance=variance,
         )
+
         self.C["l2"]["d2"]["sol"] = MySimplicialConvolution(
             self.filter_size,
-            C_in=(num_filters // 2) * self.colors,
-            C_out=(num_filters // 2) * self.colors,
+            C_in=self.hidden_size,
+            C_out=self.hidden_size,
             variance=variance,
         )
+
         self.C["l3"]["d2"]["sol"] = MySimplicialConvolution(
             self.filter_size,
-            C_in=(num_filters // 2) * self.colors,
-            C_out=self.colors,
+            C_in=self.hidden_size,
+            C_out=self.hidden_size,
             variance=variance,
         )
 
         self.C["l1"]["d2"]["irr"] = MySimplicialConvolution(
             self.filter_size,
-            C_in=self.colors,
-            C_out=(num_filters // 2) * self.colors,
+            C_in=self.feature_dim[2],
+            C_out=self.hidden_size,
             variance=variance,
         )
+
         self.C["l2"]["d2"]["irr"] = MySimplicialConvolution(
             self.filter_size,
-            C_in=(num_filters // 2) * self.colors,
-            C_out=(num_filters // 2) * self.colors,
+            C_in=self.hidden_size,
+            C_out=self.hidden_size,
             variance=variance,
         )
+
         self.C["l3"]["d2"]["irr"] = MySimplicialConvolution(
             self.filter_size,
-            C_in=(num_filters // 2) * self.colors,
-            C_out=self.colors,
+            C_in=self.hidden_size,
+            C_out=self.hidden_size,
             variance=variance,
         )
+
+        self.pooling_fn = get_pooling_fn(self.readout)
+
+        self.final_lin1 = nn.Linear(self.hidden_size, self.hidden_size)
+        self.final_lin2 = nn.Linear(self.hidden_size, self.num_classes)
 
         if self.aggregation == "MLP":
             self.L = nn.ModuleDict(
                 {f"l{i}": nn.ModuleDict() for i in range(1, self.num_layers + 1)}
             )
 
-            self.L["l1"]["d1"] = nn.Linear(
-                2 * ((num_filters // 2) * self.colors), (num_filters // 2) * self.colors
-            )
-            self.L["l1"]["d2"] = nn.Linear(
-                2 * ((num_filters // 2) * self.colors), (num_filters // 2) * self.colors
-            )
+            self.L["l1"]["d1"] = nn.Linear(2 * self.hidden_size, self.hidden_size,)
+            self.L["l1"]["d2"] = nn.Linear(2 * self.hidden_size, self.hidden_size,)
 
-            self.L["l2"]["d1"] = nn.Linear(
-                2 * ((num_filters // 2) * self.colors), (num_filters // 2) * self.colors
-            )
-            self.L["l2"]["d2"] = nn.Linear(
-                2 * ((num_filters // 2) * self.colors), (num_filters // 2) * self.colors
-            )
+            self.L["l2"]["d1"] = nn.Linear(2 * self.hidden_size, self.hidden_size,)
+            self.L["l2"]["d2"] = nn.Linear(2 * self.hidden_size, self.hidden_size,)
 
-            self.L["l3"]["d1"] = nn.Linear(2 * self.colors, self.colors)
-            self.L["l3"]["d2"] = nn.Linear(2 * self.colors, self.colors)
+            self.L["l3"]["d1"] = nn.Linear(2 * self.hidden_size, self.hidden_size)
+            self.L["l3"]["d2"] = nn.Linear(2 * self.hidden_size, self.hidden_size)
 
-    def forward(self, inputs, components):
+    def forward(self, inputs, components, batch):
         """
         parameters:
             components: dict of lists, keys: 'full' for the Laplacian, 'sol' for the solenoidal and 'irr' for irrotational component
@@ -172,7 +191,8 @@ class ClassificationSCNN(pl.LightningModule):
         layers = range(self.num_layers + 1)
         dims = range(self.num_dims)
 
-        comps = {f"d{dim}": ["irr"] if dim == 0 else ["sol", "irr"] for dim in dims}
+        comps = {"d0": ["irr"], "d1": ["sol", "irr"], "d2": ["sol"]}
+
         activactions = {
             layer: nn.Identity() if layer == 1 else nn.LeakyReLU() for layer in layers
         }
@@ -188,7 +208,9 @@ class ClassificationSCNN(pl.LightningModule):
                     self.convolve(prev_output, components, layer, dim, comp)
                     for comp in comps[f"d{dim}"]
                 ]
-                outs[f"l{layer}"][f"d{dim}"] = self.aggregate(comp_outputs, layer, dim)
+                aggregated = self.aggregate(comp_outputs, layer, dim)
+
+                outs[f"l{layer}"][f"d{dim}"] = aggregated
 
         final_out0, final_out1, final_out2 = (
             outs[last_layer]["d0"],
@@ -196,7 +218,21 @@ class ClassificationSCNN(pl.LightningModule):
             outs[last_layer]["d2"],
         )
 
-        return [final_out0, final_out1, final_out2]
+        cochain_outputs = [final_out0, final_out1, final_out2]
+
+        pooled_xs = self.pool_complex(cochain_outputs, batch)
+        x = pooled_xs.sum(dim=0)
+
+        model_nonlinearity = get_nonlinearity(
+            self.global_nonlinearity, return_module=False
+        )
+
+        x = model_nonlinearity(self.final_lin1(x))
+
+        x = F.dropout(x, p=self.dropout_rate, training=self.training)
+        x = self.final_lin2(x)
+
+        return x
 
     def convolve(self, input, components, layer, dim, component):
         """
@@ -211,7 +247,6 @@ class ClassificationSCNN(pl.LightningModule):
             component: string, 'full', 'sol' or 'irr'
     """
         convolution = self.C[f"l{layer}"][f"d{dim}"][component]
-        # TODO: handle batching
         return convolution(components[component][dim], input)
 
     def merge_components(self, outs):
@@ -242,13 +277,10 @@ class ClassificationSCNN(pl.LightningModule):
         Aggregates the output of the convolution over the different components
         if the output is from a single component (e.g. from the irrotational components for nodes), then it just returns it
         otherwise, depending on self.aggregation either aggregates by summing or by using a MLP
-    """
+        """
 
         if len(components_outputs) == 1:
             return components_outputs[0]
-
-        if self.aggregation == "sum":
-            out = sum(components_outputs)
 
         # aggregation via MLP
         else:
@@ -267,28 +299,58 @@ class ClassificationSCNN(pl.LightningModule):
 
         return out
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch: ComplexBatch, batch_idx):
 
         preds = self.get_preds(batch)
 
-        criterion = nn.CrossEntropyLoss()
-        loss = torch.FloatTensor([0.0]).type_as(X0)
+        labels = batch.get_labels()
 
-        self.log("loss", loss)
+        loss = nn.CrossEntropyLoss()(preds, labels)
+
+        self.log("loss", loss, on_epoch=True, on_step=True, prog_bar=True)
         return loss
+
+    def validation_step(self, batch: ComplexBatch, batch_idx):
+        preds = self.get_preds(batch)
+
+        labels = batch.get_labels()
+
+        loss = nn.CrossEntropyLoss()(preds, labels)
+
+        self.log("val/loss", loss, on_epoch=True, on_step=True, prog_bar=True)
+
+        preds = torch.argmax(preds, -1)
+        targets = batch.get_labels()
+
+        acc = self.accuracy(preds, targets)
+
+        self.log("val/acc_step", acc, on_epoch=True, logger=True)
+
+        return {"val/loss": loss, "preds": preds, "targets": targets}
+
+    def validation_epoch_end(self, val_batch_outputs):
+        preds = [batch["preds"] for batch in val_batch_outputs]
+        targets = [batch["targets"] for batch in val_batch_outputs]
+
+        preds = torch.cat(preds, dim=0)
+        targets = torch.cat(targets, dim=0)
+
+        acc = self.accuracy(preds, targets)
+
+        self.log("val/acc_epoch", acc, on_epoch=True, logger=True)
 
     def get_preds(self, batch):
         cochains = batch.cochains
 
         inputs = (
-            cochains[0]["signal"],
-            cochains[1]["signal"],
-            cochains[2]["signal"],
+            cochains[0]["signal"].transpose(1, 0),
+            cochains[1]["signal"].transpose(1, 0),
+            cochains[2]["signal"].transpose(1, 0),
         )
 
         components = self.get_components_from_batch(cochains)
 
-        preds = self(inputs, components)
+        preds = self(inputs, components, batch)
         return preds
 
     def get_components_from_batch(self, cochains):
@@ -300,20 +362,48 @@ class ClassificationSCNN(pl.LightningModule):
             cochains[1]["laplacian"],
             cochains[2]["laplacian"],
         )
+
         components = {"full": [L0, L1, L2], "irr": [I0, I1, I2], "sol": [S0, S1, S2]}
         return components
 
     def test_step(self, batch, batch_idx):
         preds = self.get_preds(batch)
-        targets = (batch["Y0"], batch["Y1"], batch["Y2"])
+        preds = torch.argmax(preds, -1)
+        targets = batch.get_labels()
 
         return {"preds": preds, "targets": targets}
 
     def test_epoch_end(self, test_batch_outputs):
-        preds = [batch["preds"] for batch in test_batch_outputs][0]
-        targets = [batch["targets"] for batch in test_batch_outputs][0]
+        preds = [batch["preds"] for batch in test_batch_outputs]
+        targets = [batch["targets"] for batch in test_batch_outputs]
 
-        # self.log_dict()
+        preds = torch.cat(preds, dim=0)
+        targets = torch.cat(targets, dim=0)
+
+        F1 = self.F1(preds, targets)
+        prec = self.prec(preds, targets)
+        recall = self.recall(preds, targets)
+        acc = self.accuracy(preds, targets)
+
+        self.log("test/F1", F1, on_epoch=True, logger=True)
+        self.log("test/recall", prec, on_epoch=True, logger=True)
+        self.log("test/prec", recall, on_epoch=True, logger=True)
+        self.log("test/acc", acc, on_epoch=True, logger=True)
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=1e-3)
+
+    def pool_complex(self, xs, batch):
+
+        xs = [x.transpose(1, 0) for x in xs]
+        # All complexes have nodes so we can extract the batch size from cochains[0]
+        batch_size = batch.cochains[0].batch.max() + 1
+
+        # The MP output is of shape [message_passing_dim, batch_size, feature_dim]
+        pooled_xs = torch.zeros(
+            self.num_dims, batch_size, xs[0].size(-1), device=batch_size.device
+        )
+        for i in range(len(xs)):
+            pooled = self.pooling_fn(xs[i], batch.cochains[i].batch, size=batch_size)
+            pooled_xs[i, :, :] = pooled
+        return pooled_xs

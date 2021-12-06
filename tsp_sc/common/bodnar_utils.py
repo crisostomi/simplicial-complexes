@@ -10,15 +10,11 @@ import networkx as nx
 
 from tqdm import tqdm
 from tsp_sc.common.simp_complex import Cochain, SimplicialComplex
-from tsp_sc.graph_classification.data.dataset import ComplexDataset
 from typing import List, Dict, Optional, Union
 from torch import Tensor
 from torch_geometric.typing import Adj
 from torch_scatter import scatter
 from tsp_sc.common.simplices import build_boundaries
-
-# from data.parallel import ProgressParallel
-from joblib import delayed
 
 
 def pyg_to_simplex_tree(edge_index: Tensor, size: int):
@@ -157,7 +153,6 @@ def compute_clique_complex_with_gudhi(
     size: int,
     expansion_dim: int = 2,
     y: Tensor = None,
-    include_down_adj=True,
     init_method: str = "sum",
 ) -> SimplicialComplex:
     """Generates a clique complex of a pyG graph via gudhi.
@@ -186,15 +181,6 @@ def compute_clique_complex_with_gudhi(
     # Builds tables of the simplicial complexes at each level and their IDs
     simplex_tables, id_maps = build_tables(simplex_tree, size)
 
-    # Extracts the boundaries and coboundaries of each simplex in the complex
-    (
-        boundaries_tables,
-        boundaries,
-        co_boundaries,
-    ) = extract_boundaries_and_coboundaries_from_simplex_tree(
-        simplex_tree, id_maps, complex_dim
-    )
-
     boundaries = [None] + build_boundaries(id_maps)
 
     # Construct features for the higher dimensions
@@ -209,7 +195,9 @@ def compute_clique_complex_with_gudhi(
         y = v_y if i == 0 else None
 
         num_simplices = len(xs[i])
-        num_simplices_up = boundaries[i + 1].shape[1] if i < complex_dim else 0
+        num_simplices_up = len(xs[i + 1]) if i < complex_dim else 0
+        num_simplices_down = len(xs[i - 1]) if i > 0 else 0
+
         cochain = Cochain(
             dim=i,
             signal=xs[i],
@@ -219,6 +207,7 @@ def compute_clique_complex_with_gudhi(
             y=y,
             num_simplices=num_simplices,
             num_simplices_up=num_simplices_up,
+            num_simplices_down=num_simplices_down,
         )
         cochains.append(cochain)
 
@@ -226,7 +215,7 @@ def compute_clique_complex_with_gudhi(
 
 
 def convert_graph_dataset_with_gudhi(
-    dataset, expansion_dim: int, include_down_adj=True, init_method: str = "sum"
+    dataset, expansion_dim: int, init_method: str = "sum"
 ):
     # TODO(Cris): Add parallelism to this code like in the cell complex conversion code.
     dimension = -1
@@ -244,6 +233,7 @@ def convert_graph_dataset_with_gudhi(
         )
         if complex.dimension > dimension:
             dimension = complex.dimension
+
         for dim in range(complex.dimension + 1):
             if num_features[dim] is None:
                 num_features[dim] = complex.cochains[dim].num_features
@@ -251,22 +241,6 @@ def convert_graph_dataset_with_gudhi(
                 assert num_features[dim] == complex.cochains[dim].num_features
         complexes.append(complex)
 
+    assert len(complexes) == len(dataset)
+
     return complexes, dimension, num_features[: dimension + 1]
-
-
-def load_dataset(
-    name, root, max_dim=2, fold=0, init_method="sum", n_jobs=2, **kwargs
-) -> ComplexDataset:
-    """Returns a ComplexDataset with the specified name and initialised with the given params."""
-    if name == "PROTEINS":
-        dataset = TUDataset(
-            os.path.join(root, name),
-            name,
-            max_dim=max_dim,
-            num_classes=2,
-            fold=fold,
-            degree_as_tag=False,
-            init_method=init_method,
-            max_ring_size=kwargs.get("max_ring_size", None),
-        )
-    return dataset

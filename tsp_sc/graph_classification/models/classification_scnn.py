@@ -18,10 +18,6 @@ class ClassificationSCNN(pl.LightningModule):
     """
         super().__init__()
 
-        assert params["colors"] > 0
-        # if only one component is used, then they must be kept separated
-        assert params["component_to_use"] == "both" or params["keep_separated"]
-
         self.F1 = F1(average="micro")
         self.prec = Precision(average="micro")
         self.recall = Recall(average="micro")
@@ -43,142 +39,58 @@ class ClassificationSCNN(pl.LightningModule):
         variance = 0.01
         self.num_layers = 3
         self.num_dims = 3
+        self.dims = range(0, self.num_dims)
+        self.comps = [["irr"] if dim == 0 else ["sol", "irr"] for dim in self.dims]
+        self.layers = range(0, self.num_layers)
 
-        self.C = nn.ModuleDict(
-            {
-                f"l{i}": nn.ModuleDict(
-                    {f"d{j}": nn.ModuleDict() for j in range(0, self.num_dims)}
+        self.C = nn.ModuleDict({f"d{j}": nn.ModuleDict() for j in self.dims})
+
+        for dim in self.dims:
+
+            self.C[f"d{dim}"] = nn.ModuleList()
+
+            first_conv = nn.ModuleDict(
+                {
+                    comp: MySimplicialConvolution(
+                        self.filter_size,
+                        C_in=self.feature_dim[dim],
+                        C_out=self.hidden_size,
+                        variance=variance,
+                    )
+                    for comp in self.comps[dim]
+                }
+            )
+            self.C[f"d{dim}"].append(first_conv)
+
+            for layer in range(1, self.num_layers):
+                convs = nn.ModuleDict(
+                    {
+                        comp: MySimplicialConvolution(
+                            self.filter_size,
+                            C_in=self.hidden_size,
+                            C_out=self.hidden_size,
+                            variance=variance,
+                        )
+                        for comp in self.comps[dim]
+                    }
                 )
-                for i in range(1, self.num_layers + 1)
+                self.C[f"d{dim}"].append(convs)
+
+        self.L = nn.ModuleDict(
+            {
+                f"d{dim}": nn.ModuleList(
+                    [
+                        nn.Linear(2 * self.hidden_size, self.hidden_size,)
+                        for i in self.layers
+                    ]
+                )
+                for dim in self.dims[1:]
             }
         )
-
-        # degree 0 convolutions
-        self.C["l1"]["d0"]["irr"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=self.feature_dim[0],
-            C_out=self.hidden_size,
-            variance=variance,
-        )
-
-        self.C["l2"]["d0"]["irr"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=self.hidden_size,
-            C_out=self.hidden_size,
-            variance=variance,
-        )
-
-        self.C["l3"]["d0"]["irr"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=self.hidden_size,
-            C_out=self.hidden_size,
-            variance=variance,
-        )
-
-        # degree 1 convolutions
-        self.C["l1"]["d1"]["sol"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=self.feature_dim[1],
-            C_out=self.hidden_size,
-            variance=variance,
-        )
-
-        self.C["l2"]["d1"]["sol"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=self.hidden_size,
-            C_out=self.hidden_size,
-            variance=variance,
-        )
-
-        self.C["l3"]["d1"]["sol"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=self.hidden_size,
-            C_out=self.hidden_size,
-            variance=variance,
-        )
-
-        self.C["l1"]["d1"]["irr"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=self.feature_dim[1],
-            C_out=self.hidden_size,
-            variance=variance,
-        )
-
-        self.C["l2"]["d1"]["irr"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=self.hidden_size,
-            C_out=self.hidden_size,
-            variance=variance,
-        )
-
-        self.C["l3"]["d1"]["irr"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=self.hidden_size,
-            C_out=self.hidden_size,
-            variance=variance,
-        )
-
-        # degree 2 convolutions
-        self.C["l1"]["d2"]["sol"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=self.feature_dim[2],
-            C_out=self.hidden_size,
-            variance=variance,
-        )
-
-        self.C["l2"]["d2"]["sol"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=self.hidden_size,
-            C_out=self.hidden_size,
-            variance=variance,
-        )
-
-        self.C["l3"]["d2"]["sol"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=self.hidden_size,
-            C_out=self.hidden_size,
-            variance=variance,
-        )
-
-        self.C["l1"]["d2"]["irr"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=self.feature_dim[2],
-            C_out=self.hidden_size,
-            variance=variance,
-        )
-
-        self.C["l2"]["d2"]["irr"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=self.hidden_size,
-            C_out=self.hidden_size,
-            variance=variance,
-        )
-
-        self.C["l3"]["d2"]["irr"] = MySimplicialConvolution(
-            self.filter_size,
-            C_in=self.hidden_size,
-            C_out=self.hidden_size,
-            variance=variance,
-        )
-
-        self.pooling_fn = get_pooling_fn(self.readout)
-
         self.final_lin1 = nn.Linear(self.hidden_size, self.hidden_size)
         self.final_lin2 = nn.Linear(self.hidden_size, self.num_classes)
 
-        if self.aggregation == "MLP":
-            self.L = nn.ModuleDict(
-                {f"l{i}": nn.ModuleDict() for i in range(1, self.num_layers + 1)}
-            )
-
-            self.L["l1"]["d1"] = nn.Linear(2 * self.hidden_size, self.hidden_size,)
-            self.L["l1"]["d2"] = nn.Linear(2 * self.hidden_size, self.hidden_size,)
-
-            self.L["l2"]["d1"] = nn.Linear(2 * self.hidden_size, self.hidden_size,)
-            self.L["l2"]["d2"] = nn.Linear(2 * self.hidden_size, self.hidden_size,)
-
-            self.L["l3"]["d1"] = nn.Linear(2 * self.hidden_size, self.hidden_size)
-            self.L["l3"]["d2"] = nn.Linear(2 * self.hidden_size, self.hidden_size)
+        self.pooling_fn = get_pooling_fn(self.readout)
 
     def forward(self, inputs, components, batch):
         """
@@ -188,37 +100,35 @@ class ClassificationSCNN(pl.LightningModule):
             xs: inputs
         """
 
-        layers = range(self.num_layers + 1)
-        dims = range(self.num_dims)
+        layers = range(self.num_layers)
+        last_layer = self.num_layers - 1
 
-        comps = {"d0": ["irr"], "d1": ["sol", "irr"], "d2": ["sol"]}
+        dims = range(batch.dimension + 1)
 
-        activactions = {
-            layer: nn.Identity() if layer == 1 else nn.LeakyReLU() for layer in layers
-        }
-        last_layer = f"l{self.num_layers}"
+        comps = self.get_comps(batch.dimension)
 
-        outs = {f"l{layer}": {} for layer in layers}
-        outs["l0"] = {f"d{dim}": inputs[dim] for dim in dims}
+        activ = {layer: nn.LeakyReLU() for layer in layers}
 
-        for layer in layers[1:]:
+        outs = [{} for layer in layers]
+
+        for layer in layers:
             for dim in dims:
-                prev_output = activactions[layer](outs[f"l{layer - 1}"][f"d{dim}"])
+                prev_output = (
+                    inputs[dim]
+                    if layer == 0
+                    else activ[layer](outs[layer - 1][f"d{dim}"])
+                )
                 comp_outputs = [
                     self.convolve(prev_output, components, layer, dim, comp)
                     for comp in comps[f"d{dim}"]
                 ]
                 aggregated = self.aggregate(comp_outputs, layer, dim)
 
-                outs[f"l{layer}"][f"d{dim}"] = aggregated
+                outs[layer][f"d{dim}"] = aggregated
 
-        final_out0, final_out1, final_out2 = (
-            outs[last_layer]["d0"],
-            outs[last_layer]["d1"],
-            outs[last_layer]["d2"],
-        )
-
-        cochain_outputs = [final_out0, final_out1, final_out2]
+        cochain_outputs = [
+            outs[last_layer][f"d{i}"] for i in range(batch.dimension + 1)
+        ]
 
         pooled_xs = self.pool_complex(cochain_outputs, batch)
         x = pooled_xs.sum(dim=0)
@@ -234,6 +144,20 @@ class ClassificationSCNN(pl.LightningModule):
 
         return x
 
+    @staticmethod
+    def get_comps(dim):
+        comps = {}
+        dims = range(dim + 1)
+        for dim in dims:
+            if dim == 0:
+                dim_comps = ["irr"]
+            elif dim == dim:
+                dim_comps = ["sol"]
+            else:
+                dim_comps = ["sol", "irr"]
+            comps[f"d{dim}"] = dim_comps
+        return comps
+
     def convolve(self, input, components, layer, dim, component):
         """
         Convolves input using the given component
@@ -246,7 +170,8 @@ class ClassificationSCNN(pl.LightningModule):
             dim: int, dimension of the simplices being considered
             component: string, 'full', 'sol' or 'irr'
     """
-        convolution = self.C[f"l{layer}"][f"d{dim}"][component]
+        convolution = self.C[f"d{dim}"][layer][component]
+        # print(dim, component, layer)
         return convolution(components[component][dim], input)
 
     def merge_components(self, outs):
@@ -293,7 +218,7 @@ class ClassificationSCNN(pl.LightningModule):
 
             out_concat = torch.cat(reshaped_outs, 1)
 
-            out = self.L[f"l{layer}"][f"d{dim}"](out_concat)
+            out = self.L[f"d{dim}"][layer](out_concat)
 
             out = out.reshape(c_out, num_simplices)
 
@@ -340,30 +265,26 @@ class ClassificationSCNN(pl.LightningModule):
         self.log("val/acc_epoch", acc, on_epoch=True, logger=True)
 
     def get_preds(self, batch):
-        cochains = batch.cochains
 
-        inputs = (
-            cochains[0]["signal"].transpose(1, 0),
-            cochains[1]["signal"].transpose(1, 0),
-            cochains[2]["signal"].transpose(1, 0),
-        )
+        inputs = [
+            batch.cochains[i]["signal"].transpose(1, 0)
+            for i in range(batch.dimension + 1)
+        ]
 
-        components = self.get_components_from_batch(cochains)
+        components = self.get_components_from_batch(batch)
 
         preds = self(inputs, components, batch)
         return preds
 
-    def get_components_from_batch(self, cochains):
+    def get_components_from_batch(self, batch):
+        dim = batch.dimension
+        cochains = batch.cochains
 
-        S0, S1, S2 = None, cochains[1]["solenoidal"], cochains[2]["solenoidal"]
-        I0, I1, I2 = cochains[0]["irrotational"], cochains[1]["irrotational"], None
-        L0, L1, L2 = (
-            cochains[0]["laplacian"],
-            cochains[1]["laplacian"],
-            cochains[2]["laplacian"],
-        )
+        S = [None] + [cochains[i]["solenoidal"] for i in range(1, dim + 1)]
+        I = [cochains[i]["irrotational"] for i in range(dim)] + [None]
+        L = [cochains[i]["laplacian"] for i in range(dim + 1)]
 
-        components = {"full": [L0, L1, L2], "irr": [I0, I1, I2], "sol": [S0, S1, S2]}
+        components = {"full": L, "irr": I, "sol": L}
         return components
 
     def test_step(self, batch, batch_idx):

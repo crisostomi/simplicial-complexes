@@ -85,10 +85,16 @@ class ComplexDataset(Dataset, ABC):
         the same number of features for the same dimension.
         :return:
         """
-        first_complex = self[0]
-        for dim in range(first_complex.dimension + 1):
+        largest_complex = self.get_complex_with_max_dim()
+        for dim in range(self.max_dim + 1):
             if self._num_features[dim] is None:
-                self._num_features[dim] = first_complex.cochains[dim].num_features
+                self._num_features[dim] = largest_complex.cochains[dim].num_features
+
+    def get_complex_with_max_dim(self):
+        for complex in self:
+            if complex.dimension == self.max_dim:
+                return complex
+        raise AssertionError(f"no complex having dimension {self.max_dim}")
 
     def get_idx_split(self):
         idx_split = {

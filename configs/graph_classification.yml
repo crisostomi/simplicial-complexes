@@ -6,8 +6,8 @@ data:
   max_simplex_dim: 2
   considered_simplex_dim: 2
   batch_size: 16
-  dataset: PTC
-  fold: null
+  dataset: REDDITMULTI5K
+  fold: 0
   num_folds: 10
 
 run_params:

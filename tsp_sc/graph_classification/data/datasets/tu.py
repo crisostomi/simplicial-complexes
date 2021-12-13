@@ -2,16 +2,13 @@ import os
 import torch
 import pickle
 import numpy as np
-import random
 from tsp_sc.graph_classification.data.tu_utils import (
     load_data,
     S2V_to_PyG,
 )
 from tsp_sc.common.bodnar_utils import convert_graph_dataset_with_gudhi
 from tsp_sc.graph_classification.data.dataset import InMemoryComplexDataset
-from sklearn.model_selection import train_test_split
 from tsp_sc.common.misc import Phases
-from math import ceil
 
 
 class TUDataset(InMemoryComplexDataset):
@@ -26,7 +23,7 @@ class TUDataset(InMemoryComplexDataset):
         degree_as_tag=False,
         init_method="sum",
         seed=0,
-        fold=None,
+        fold=0,
         num_folds=10,
     ):
         self.name = name
@@ -36,6 +33,7 @@ class TUDataset(InMemoryComplexDataset):
         self.split_filenames = {
             phase: os.path.join(root, f"split/{phase.value}") for phase in Phases
         }
+        self.ignore_idxs_path = os.path.join(self.raw_dir, "ignore_idxs.txt")
 
         super(TUDataset, self).__init__(
             root, max_dim=max_dim, num_classes=num_classes, init_method=init_method,
@@ -45,11 +43,21 @@ class TUDataset(InMemoryComplexDataset):
 
         self.seed = seed
 
-        self.split_indices = (
-            self.get_split_indices()
-            if fold is None
-            else self.get_k_fold_indices(fold, num_folds)
-        )
+        indices_dir = os.path.join(self.raw_dir, "10fold_idx")
+        train_filename = os.path.join(indices_dir, f"train_idx-{fold+1}.txt")
+        val_filename = os.path.join(indices_dir, f"test_idx-{fold+1}.txt")
+        assert os.path.isfile(train_filename) and os.path.isfile(val_filename)
+        train_idxs = np.loadtxt(train_filename, dtype=int).tolist()
+        val_idxs = np.loadtxt(val_filename, dtype=int).tolist()
+
+        self.ignore_idxs = np.loadtxt(self.ignore_idxs_path, dtype=int)
+        self.split_indices = {}
+        self.split_indices[Phases.train] = [
+            idx for idx in train_idxs if idx not in self.ignore_idxs
+        ]
+        self.split_indices[Phases.val] = [
+            idx for idx in val_idxs if idx not in self.ignore_idxs
+        ]
 
     @property
     def processed_dir(self):
@@ -86,46 +94,12 @@ class TUDataset(InMemoryComplexDataset):
             graph_list, expansion_dim=self.max_dim, init_method=self._init_method,
         )
         print(f"Computed a total of {len(complexes)} complexes")
-        complexes = [complex for complex in complexes if complex.triangles is not None]
-        print(f"Only {len(complexes)} have triangles")
 
-        self.create_splits(complexes)
+        self.ignore_idxs = np.array(
+            [ind for ind, complex in enumerate(complexes) if complex.triangles is None],
+            dtype=int,
+        )
+
+        np.savetxt(self.ignore_idxs_path, self.ignore_idxs, fmt="%d")
 
         torch.save(self.collate(complexes, self.max_dim), self.processed_paths[0])
-
-    def get_k_fold_indices(self, fold, num_folds):
-        N = self.len()
-        indices = np.arange(N)
-        width = ceil(N / num_folds)
-
-        start = width * fold
-        end = width * (fold + 1)
-
-        val_indices = indices[start:end]
-        training_indices = np.concatenate((indices[:start], indices[end:]))
-
-        indices = {Phases.train: training_indices, Phases.val: val_indices}
-        return indices
-
-    def create_splits(self, samples):
-
-        indices = np.arange(len(samples))
-        random.shuffle(indices)
-
-        y = np.arange(len(samples))
-        x_train, x_valtest, y_train, y_valtest = train_test_split(
-            indices, y, test_size=0.2
-        )
-        x_val, x_test, y_val, y_test = train_test_split(
-            x_valtest, y_valtest, test_size=0.5
-        )
-
-        np.save(self.split_filenames[Phases.train], x_train)
-        np.save(self.split_filenames[Phases.val], x_val)
-        np.save(self.split_filenames[Phases.test], x_test)
-
-    def get_split_indices(self):
-        indices = {
-            phase: np.load(f"{self.split_filenames[phase]}.npy") for phase in Phases
-        }
-        return indices

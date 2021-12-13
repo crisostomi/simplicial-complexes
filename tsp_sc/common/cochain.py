@@ -385,12 +385,19 @@ class CochainBatch(Cochain):
         num_simplices_list = []
         num_simplices_up_list = []
         num_simplices_down_list = []
+        slices = {
+            key: [0] if key not in sparse_keys else [torch.tensor([0, 0])]
+            for key in keys
+        }
 
         for i, data in enumerate(data_list):
 
             for key in keys:
 
                 item = data[key]
+
+                if key == "irrotational" and data.__num_simplices_up__ == 0:
+                    item = torch.zeros_like(data["laplacian"])
 
                 if item is not None:
                     # Increase values by `cumsum` value.
@@ -412,8 +419,15 @@ class CochainBatch(Cochain):
                     # Gather the size of the `cat` dimension.
                     cat_dim = data.__cat_dim__(key, data[key])
                     cat_dims[key] = cat_dim
-                    if isinstance(item, Tensor):
+                    size = 1
+                    if isinstance(item, Tensor) and item.is_sparse:
+                        size = torch.tensor(item.size())[torch.tensor(cat_dim)]
                         device = item.device
+                    elif isinstance(item, Tensor):
+                        size = item.size(cat_dim)
+                        device = item.device
+
+                    slices[key].append(size + slices[key][-1])
 
                 inc = data.__inc__(key, item)
                 if isinstance(inc, (tuple, list)):

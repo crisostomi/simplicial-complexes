@@ -138,3 +138,34 @@ class GraphClassificationDataModule(TopologicalDataModule):
     def print_stats(self):
         num_complexes = len(self.laplacians)
         print(f"There are {num_complexes} simplicial complexes")
+
+    # def get_k_fold_indices(self, fold, num_folds):
+    #     N = self.len()
+    #     indices = np.arange(N)
+    #     width = ceil(N / num_folds)
+    #
+    #     start = width * fold
+    #     end = width * (fold + 1)
+    #
+    #     val_indices = indices[start:end]
+    #     training_indices = np.concatenate((indices[:start], indices[end:]))
+    #
+    #     indices = {Phases.train: training_indices, Phases.val: val_indices}
+    #     return indices
+
+    # def create_splits(self, samples):
+    #
+    #     indices = np.arange(len(samples))
+    #     random.shuffle(indices)
+    #
+    #     y = np.arange(len(samples))
+    #     x_train, x_valtest, y_train, y_valtest = train_test_split(
+    #         indices, y, test_size=0.2
+    #     )
+    #     x_val, x_test, y_val, y_test = train_test_split(
+    #         x_valtest, y_valtest, test_size=0.5
+    #     )
+    #
+    #     np.save(self.split_filenames[Phases.train], x_train)
+    #     np.save(self.split_filenames[Phases.val], x_val)
+    #     np.save(self.split_filenames[Phases.test], x_test)

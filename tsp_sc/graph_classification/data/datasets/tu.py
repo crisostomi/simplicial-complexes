@@ -9,6 +9,8 @@ from tsp_sc.graph_classification.data.tu_utils import (
 from tsp_sc.common.bodnar_utils import convert_graph_dataset_with_gudhi
 from tsp_sc.graph_classification.data.dataset import InMemoryComplexDataset
 from tsp_sc.common.misc import Phases
+from tsp_sc.graph_classification.data.tu_utils import get_fold_indices
+import scipy
 
 
 class TUDataset(InMemoryComplexDataset):
@@ -29,6 +31,7 @@ class TUDataset(InMemoryComplexDataset):
         self.name = name
         self.degree_as_tag = degree_as_tag
         self.root = root
+        self.fold = fold
 
         self.split_filenames = {
             phase: os.path.join(root, f"split/{phase.value}") for phase in Phases
@@ -40,15 +43,31 @@ class TUDataset(InMemoryComplexDataset):
         )
 
         self.data, self.slices = torch.load(self.processed_paths[0])
+        for dim in range(self.max_dim + 1):
+            for key in self.data[dim].keys:
+                value = self.data[dim][key]
+                if torch.is_tensor(value) and value.is_sparse:
+                    tensor = value
+                    indices, values = tensor._indices(), tensor._values()
+
+                    rows, cols = indices[0], indices[1]
+                    sparse_mat = scipy.sparse.csr_matrix(
+                        (values, (rows, cols)), shape=tensor.shape
+                    )
+                    sparse_mat.eliminate_zeros()
+                    self.data[dim][key] = sparse_mat
 
         self.seed = seed
 
         indices_dir = os.path.join(self.raw_dir, "10fold_idx")
         train_filename = os.path.join(indices_dir, f"train_idx-{fold+1}.txt")
         val_filename = os.path.join(indices_dir, f"test_idx-{fold+1}.txt")
-        assert os.path.isfile(train_filename) and os.path.isfile(val_filename)
-        train_idxs = np.loadtxt(train_filename, dtype=int).tolist()
-        val_idxs = np.loadtxt(val_filename, dtype=int).tolist()
+
+        if os.path.isfile(train_filename) and os.path.isfile(val_filename):
+            train_idxs = np.loadtxt(train_filename, dtype=int).tolist()
+            val_idxs = np.loadtxt(val_filename, dtype=int).tolist()
+        else:
+            train_idxs, val_idxs = get_fold_indices(self, self.seed, self.fold)
 
         self.ignore_idxs = np.loadtxt(self.ignore_idxs_path, dtype=int)
         self.split_indices = {}

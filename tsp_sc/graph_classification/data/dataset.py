@@ -1,7 +1,7 @@
 from torch_geometric.data import Dataset
 import copy
 from abc import ABC
-
+import sys
 import torch
 import os.path as osp
 from tsp_sc.common.utils import sparse_slice
@@ -10,6 +10,9 @@ from itertools import repeat, product
 from tsp_sc.common.simp_complex import SimplicialComplex, Cochain
 from tsp_sc.common.utils import block_diagonal
 from torch import Tensor
+import scipy
+
+MAX_GPU_TENSOR_SIZE = 12884901888
 
 
 class ComplexDataset(Dataset, ABC):
@@ -218,9 +221,9 @@ class InMemoryComplexDataset(ComplexDataset):
         for key in cochain_data.keys:
             item, slices = cochain_data[key], cochain_slices[key]
             data[key] = None
-            if torch.is_tensor(item) and item.is_sparse:
+            # if torch.is_tensor(item) and item.is_sparse:
+            if scipy.sparse.issparse(item):
                 start, end = slices[idx], slices[idx + 1]
-                item = item.cuda()
                 data[key] = sparse_slice(item, start, end)
             else:
                 start, end = slices[idx].item(), slices[idx + 1].item()

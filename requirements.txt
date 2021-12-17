@@ -11,4 +11,7 @@ pytorch-lightning
 networkx
 pandas
 tqdm==4.62.2
+gudhi
+scipy
 -e .
+wandb

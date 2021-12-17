@@ -30,6 +30,7 @@ import numpy as np
 import torch
 import torch_geometric
 from torch_geometric.data import Data
+from sklearn.model_selection import StratifiedKFold
 
 
 class S2VGraph(object):

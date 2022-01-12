@@ -7,7 +7,7 @@ command:
 
 method: grid
 
-project: cross-validation
+project: TSP-SC-cross-validation
 
 metric:
   name: val/loss

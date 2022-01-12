@@ -102,13 +102,13 @@ def create_graph_from_mesh(positions, triangles):
     # nx.draw(g)
 
 
-def build_boundaries(simplices):
+def build_boundaries(simplex_id_maps):
     """
     Build the boundary operators from a list of simplices.
 
     Parameters
     ----------
-    simplices:
+    simplex_id_maps:
                 List of dictionaries, one per dimension d.
                 The size of the dictionary is the number of d-simplices.
                 The dictionary's keys are sets (of size d+1) of the vertices that constitute the d-simplices.
@@ -119,12 +119,13 @@ def build_boundaries(simplices):
                 List of boundary operators, one per dimension: i-th boundary is in (i-1)-th position
     """
     boundaries = list()
+    num_dims = len(simplex_id_maps)
 
-    for dim in range(1, len(simplices)):
+    for dim in range(1, num_dims):
         idx_simplices, idx_faces, values = [], [], []
 
         # simplex is a frozenset of vertices, idx_simplex is the integer progressive id of the simplex
-        for simplex, idx_simplex in simplices[dim].items():
+        for simplex, idx_simplex in simplex_id_maps[dim].items():
             simplices_list_sorted = np.sort(list(simplex))
 
             for i, left_out in enumerate(simplices_list_sorted):
@@ -133,15 +134,18 @@ def build_boundaries(simplices):
                 idx_simplices.append(idx_simplex)
                 values.append((-1) ** i)
                 face = simplex.difference({left_out})
-                idx_faces.append(simplices[dim - 1][face])
+                idx_faces.append(simplex_id_maps[dim - 1][face])
 
-        assert len(values) == (dim + 1) * len(simplices[dim])
+        assert len(values) == (dim + 1) * len(simplex_id_maps[dim])
+
         boundary = coo_matrix(
             (values, (idx_faces, idx_simplices)),
             dtype=np.float32,
-            shape=(len(simplices[dim - 1]), len(simplices[dim])),
+            shape=(len(simplex_id_maps[dim - 1]), len(simplex_id_maps[dim])),
         )
+        boundary.eliminate_zeros()
         boundaries.append(boundary)
+
     return boundaries
 
 
@@ -161,6 +165,7 @@ def build_laplacians(boundaries):
     laplacians = list()
     # graph Laplacian L0
     upper = coo_matrix(boundaries[0] @ boundaries[0].T)
+    upper.eliminate_zeros()
     laplacians.append(upper)
 
     for dim in range(len(boundaries) - 1):
@@ -169,11 +174,16 @@ def build_laplacians(boundaries):
         # upper Laplacian B_{k+1} B_{k}^T
         upper = boundaries[dim + 1] @ boundaries[dim + 1].T
         # L_k = L_k_lower + L_k_upper
-        laplacians.append(coo_matrix(lower + upper))
+        laplacian = coo_matrix(lower + upper)
+
+        laplacian.eliminate_zeros()
+        laplacians.append(laplacian)
 
     # last Laplacian L_K
-    lower = boundaries[-1].T @ boundaries[-1]
-    laplacians.append(coo_matrix(lower))
+    lower = coo_matrix(boundaries[-1].T @ boundaries[-1])
+    lower.eliminate_zeros()
+
+    laplacians.append(lower)
     return laplacians
 
 
@@ -205,9 +215,6 @@ def normalize_laplacian(L, eigenval, half_interval=False):
     M = L.shape[0]
     assert M == L.shape[1]
 
-    # take the first eigenvalue of the Laplacian, i.e. the largest
-    # largest_eigenvalue = linalg.eigsh(L, k=1, which="LM", return_eigenvectors=False)[0]
-
     L_normalized = L.copy()
 
     if half_interval:
@@ -216,6 +223,10 @@ def normalize_laplacian(L, eigenval, half_interval=False):
         L_normalized *= 2.0 / eigenval
         L_normalized.setdiag(L_normalized.diagonal(0) - np.ones(M), 0)
 
+    if L_normalized.shape == (1, 1):
+        L_normalized = scipy.sparse.coo_matrix(L_normalized)
+
+    L_normalized.eliminate_zeros()
     return L_normalized
 
 

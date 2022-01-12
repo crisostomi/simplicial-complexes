@@ -202,43 +202,8 @@ def S2V_to_PyG(data):
     return new_data
 
 
-def separate_data(graph_list, seed, fold_idx):
-    assert 0 <= fold_idx and fold_idx < 10, "fold_idx must be from 0 to 9."
-    skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=seed)
-
-    labels = [graph.label for graph in graph_list]
-    idx_list = []
-    for idx in skf.split(np.zeros(len(labels)), labels):
-        idx_list.append(idx)
-    train_idx, test_idx = idx_list[fold_idx]
-
-    train_graph_list = [graph_list[i] for i in train_idx]
-    test_graph_list = [graph_list[i] for i in test_idx]
-
-    return train_graph_list, test_graph_list
-
-
-def separate_data_given_split(graph_list, path, fold_idx):
-    ### Splits data based on pre-computed splits
-    assert -1 <= fold_idx and fold_idx < 10, "fold_idx must be from 0 to 9."
-
-    train_filename = os.path.join(
-        path, "10fold_idx", "train_idx-{}.txt".format(fold_idx + 1)
-    )
-    test_filename = os.path.join(
-        path, "10fold_idx", "test_idx-{}.txt".format(fold_idx + 1)
-    )
-    train_idx = np.loadtxt(train_filename, dtype=int)
-    test_idx = np.loadtxt(test_filename, dtype=int)
-
-    train_graph_list = [graph_list[i] for i in train_idx]
-    test_graph_list = [graph_list[i] for i in test_idx]
-
-    return train_graph_list, test_graph_list
-
-
 def get_fold_indices(complex_list, seed, fold_idx):
-    assert 0 <= fold_idx and fold_idx < 10, "fold_idx must be from 0 to 9."
+    assert 0 <= fold_idx < 10, "fold_idx must be from 0 to 9."
     skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=seed)
 
     labels = [complex.y.item() for complex in complex_list]

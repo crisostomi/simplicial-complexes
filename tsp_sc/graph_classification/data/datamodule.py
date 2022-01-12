@@ -8,14 +8,14 @@ class GraphClassificationDataModule(pl.LightningDataModule):
     def __init__(self, paths, data_params):
         super().__init__()
 
-        dataset_name = data_params["dataset"]
-        root = paths["data"]
-
-        dataset = load_dataset(
-            dataset_name, root, max_dim=2, init_method="sum", fold=data_params["fold"]
+        self.dataset = load_dataset(
+            name=data_params["dataset"],
+            root=paths["data"],
+            max_dim=data_params["considered_simplex_dim"],
+            init_method=data_params["init_method"],
+            fold=data_params["fold"],
         )
 
-        self.dataset = dataset
         self.batch_size = data_params["batch_size"]
 
     def train_dataloader(self):

@@ -19,11 +19,15 @@ wandb.login()
 
 config = load_config(cli_args.config)
 
+wandb.init(config=config)
+
+fix_dict_in_config(wandb)
+
 path_params, data_params, run_params, model_params = (
-    config["paths"],
-    config["data"],
-    config["run_params"],
-    config["models"],
+    wandb.config["paths"],
+    wandb.config["data"],
+    wandb.config["run_params"],
+    wandb.config["models"],
 )
 
 assert data_params["considered_simplex_dim"] <= data_params["max_simplex_dim"]
@@ -35,8 +39,6 @@ data_module = GraphClassificationDataModule(paths, data_params)
 
 model_name = "classification_scnn"
 
-wandb.init(config=config)
-fix_dict_in_config(wandb)
 
 model_params = wandb.config["models"][model_name]
 model_params["num_classes"] = data_module.dataset.num_classes
@@ -52,11 +54,12 @@ early_stopping_callback = EarlyStopping(
     mode="min",
 )
 
-run_config = get_run_config(model_name, config)
+run_config = get_run_config(model_name, wandb.config)
 
-wandb_logger = WandbLogger(
-    name=model_name, project="complex-classification", config=run_config
-)
+wandb_logger = WandbLogger(name=model_name, project="TSP-SC", config=run_config)
+wandb.define_metric("val/acc", summary="max", goal="max", step_metric="epoch")
+wandb.define_metric("val/loss", summary="min", goal="min", step_metric="epoch")
+
 trainer = Trainer(
     max_epochs=run_params["max_epochs"],
     min_epochs=run_params["min_epochs"],

@@ -1,0 +1,70 @@
+program: scripts/evaluate_graph_classification.py
+
+command:
+  - python3
+  - ${program}
+  - --config=configs/search_start.yml
+
+method: bayes
+
+project: TSP-SC-param-search
+
+metric:
+  name: val/loss_epoch
+  goal: minimize
+
+parameters:
+
+  models.classification_scnn.num_layers:
+    values:
+      - 2
+      - 3
+      - 4
+
+  models.classification_scnn.dropout_rate:
+    values:
+      - 0
+      - 0.2
+      - 0.5
+
+  models.classification_scnn.hidden_size:
+    values:
+      - 32
+      - 64
+
+  models.classification_scnn.filter_size:
+    values:
+      - 3
+      - 4
+
+  models.classification_scnn.sched_gamma:
+    values:
+      - 0.5
+      - 0.9
+
+  models.classification_scnn.sched_step_size:
+    values:
+      - 5
+      - 10
+
+  models.classification_scnn.dim_aggregation:
+    values:
+      - sum
+      - linear
+
+#  models.classification_scnn.jump_mode:
+#    values:
+#      - cat
+#      - null
+
+  models.classification_scnn.readout:
+    values:
+      - sum
+      - mean
+
+  models.classification_scnn.aggregation:
+    values:
+      - sum
+      - MLP
+
+

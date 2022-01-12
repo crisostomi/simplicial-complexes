@@ -3,6 +3,15 @@ from tsp_sc.graph_classification.data.datasets.tu import TUDataset
 import os
 from tsp_sc.graph_classification.data.dataset import ComplexDataset
 
+DATASET_NAMES = {
+    "IMDBBINARY",
+    "IMDBMULTI",
+    "NCI1",
+    "PROTEINS",
+    "REDDITBINARY",
+    "REDDITMULTI5K",
+}
+
 
 def get_paths(path_params, data_params):
     dataset = data_params["dataset"]
@@ -21,31 +30,31 @@ def get_model(model_name, model_params):
         return "Model name does not exist."
 
 
-def load_dataset(
-    name, root, max_dim=2, init_method="sum", fold=None, n_jobs=2, **kwargs
-) -> ComplexDataset:
-    """Returns a ComplexDataset with the specified name and initialised with the given params."""
-    if name in [
-        "PROTEINS",
-        "IMDBBINARY",
-        "IMDBMULTI",
-        "MUTAG",
-        "NCI1",
-        "NCI109",
-        "PTC",
-        "REDDITBINARY",
-        "REDDITMULTI5K",
-        "COLLAB",
-    ]:
-        dataset = TUDataset(
-            os.path.join(root, name),
-            name,
-            max_dim=max_dim,
-            num_classes=2,
-            degree_as_tag=False,
-            init_method=init_method,
-            fold=fold,
-        )
-    else:
-        raise NotImplementedError(f"Dataset {name} not supported.")
+def load_dataset(name, root, max_dim=2, init_method="sum", fold=None) -> ComplexDataset:
+    """
+    Returns a ComplexDataset with the specified name and initialised with the given params.
+    """
+
+    assert name in DATASET_NAMES
+
+    num_classes = {
+        "PROTEINS": 2,
+        "NCI1": 2,
+        "REDDITBINARY": 2,
+        "IMDBBINARY": 2,
+        "IMDBMULTI": 3,
+        "REDDITMULTI5K": 5,
+    }
+
+    degree_as_tag = True if name in {"IMDBBINARY", "IMDBMULTI"} else False
+
+    dataset = TUDataset(
+        os.path.join(root, name),
+        name,
+        max_dim=max_dim,
+        num_classes=num_classes[name],
+        degree_as_tag=degree_as_tag,
+        init_method=init_method,
+        fold=fold,
+    )
     return dataset

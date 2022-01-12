@@ -52,7 +52,6 @@ for model_name in model_names:
 
     wandb.init(config=config)
     fix_dict_in_config(wandb)
-
     model_params = wandb.config["models"][model_name]
 
     model = get_model(model_name, model_params)
@@ -66,7 +65,9 @@ for model_name in model_names:
     )
 
     run_config = get_run_config(model_name, config)
-    wandb_logger = WandbLogger(name=model_name, project="dummy", config=run_config)
+    wandb_logger = WandbLogger(
+        name=model_name, project="TSP-SC-missing-value-imputation", config=run_config
+    )
 
     # wandb_logger.watch(model, log_freq=500)
     wandb_logger.log_hyperparams({"num_params": num_params(model)})

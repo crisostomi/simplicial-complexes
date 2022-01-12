@@ -1,10 +1,8 @@
 import scipy.sparse
-import torch
 from torch_geometric.nn import global_mean_pool, global_add_pool
 import torch.nn.functional as F
-from torch_sparse import cat as sparse_cat
-from timeit import default_timer as timer
 import numpy as np
+import torch
 
 
 def block_diagonal(*arrs):
@@ -49,64 +47,11 @@ def block_diagonal(*arrs):
     return out
 
 
-# def sparse_slice(tensor, start, end):
-#     assert tensor.is_sparse
-#     indices, values = tensor._indices(), tensor._values()
-#
-#     row_start, col_start = start
-#     row_end, col_end = end
-#     rows, cols = indices[0], indices[1]
-#
-#     row_mask = (rows >= row_start) & (rows < row_end)
-#     col_mask = (cols >= col_start) & (cols < col_end)
-#
-#     rows = rows[row_mask] - row_start
-#     cols = cols[col_mask] - col_start
-#
-#     row_col_mask = row_mask & col_mask
-#
-#     new_values = values[row_col_mask]
-#     new_indices = torch.stack((rows, cols))
-#
-#     sparse_result = torch.sparse_coo_tensor(
-#         indices=new_indices,
-#         values=new_values,
-#         size=(row_end - row_start, col_end - col_start),
-#     )
-#
-#     return sparse_result
-
-
-# def sparse_slice(tensor, start, end):
-#     assert tensor.is_sparse
-#     indices, values = tensor._indices(), tensor._values()
-#
-#     rows, cols = indices[0], indices[1]
-#     assert is_sorted(rows)
-#     assert is_sorted(cols)
-#
-#     row_start, col_start = start
-#     row_end, col_end = end
-#
-#     row_lb, row_ub = torch.searchsorted(rows, torch.tensor([row_start, row_end]))
-#     col_lb, col_ub = torch.searchsorted(cols, torch.tensor([col_start, col_end]))
-#
-#     row_col_lb = max(row_lb, col_lb)
-#     row_col_ub = min(row_ub, col_ub)
-#
-#     rows_slice = rows[row_col_lb:row_col_ub] - row_start
-#     cols_slice = cols[row_col_lb:row_col_ub] - col_start
-#     values_slice = values[row_col_lb:row_col_ub]
-#
-#     indices_slice = torch.stack((rows_slice, cols_slice))
-#
-#     sparse_result = torch.sparse_coo_tensor(
-#         indices=indices_slice,
-#         values=values_slice,
-#         size=(row_end - row_start, col_end - col_start),
-#     )
-#
-#     return sparse_result
+def eliminate_zeros(x):
+    mask = x._values().nonzero()
+    nv = x._values().index_select(0, mask.view(-1))
+    ni = x._indices().index_select(1, mask.view(-1))
+    return torch.sparse.FloatTensor(ni, nv, x.shape)
 
 
 def sparse_slice(sparse_mat, start, end):
@@ -124,7 +69,7 @@ def sparse_slice(sparse_mat, start, end):
         size=sparse_matrix_coo.get_shape(),
     )
 
-    return sparse_result
+    return sparse_result.to_dense()
 
 
 def is_sorted(arr):
@@ -181,3 +126,12 @@ def sparse_flatten(tensor):
     return torch.sparse_coo_tensor(
         indices=cols.unsqueeze(0), values=values, size=new_shape
     )
+
+
+def sparse_tensor_to_sparse_matrix(tensor: torch.Tensor) -> scipy.sparse.spmatrix:
+    indices, values = tensor._indices(), tensor._values()
+
+    rows, cols = indices[0], indices[1]
+    sparse_mat = scipy.sparse.csr_matrix((values, (rows, cols)), shape=tensor.shape)
+
+    return sparse_mat

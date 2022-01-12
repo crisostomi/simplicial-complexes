@@ -1,21 +1,18 @@
 from tsp_sc.common.simp_complex import (
-    Cochain,
     SimplicialComplex,
     ComplexBatch,
-    CochainBatch,
 )
 
 
 class Collater(object):
-    """Object that converts python lists of objects into the appropiate storage format.
+    """
+    Object that converts python lists of objects into the appropriate storage format.
 
     Args:
-        follow_batch: Creates assignment batch vectors for each key in the list.
         max_dim: The maximum dimension of the cochains considered from the supplied list.
     """
 
-    def __init__(self, follow_batch, max_dim=2):
-        self.follow_batch = follow_batch
+    def __init__(self, max_dim=2):
         self.max_dim = max_dim
 
     def collate(self, batch):

@@ -21,6 +21,7 @@ class MySimplicialConvolution(nn.Module):
         self.theta = nn.parameter.Parameter(
             variance * torch.randn((self.C_out, self.C_in, self.filter_size))
         )
+
         self.bias = (
             nn.parameter.Parameter(torch.zeros((self.C_out, 1)))
             if self.enable_bias

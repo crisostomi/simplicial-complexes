@@ -21,5 +21,10 @@ class ComplexDataLoader(DataLoader):
             del kwargs["collate_fn"]
 
         super(ComplexDataLoader, self).__init__(
-            dataset, batch_size, shuffle, collate_fn=Collater(max_dim), **kwargs
+            dataset,
+            batch_size,
+            shuffle,
+            # pin_memory=True,
+            collate_fn=Collater(max_dim),
+            **kwargs
         )

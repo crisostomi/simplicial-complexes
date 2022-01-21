@@ -140,6 +140,10 @@ class ComplexBatch(SimplicialComplex):
         self.num_complexes = num_complexes
         self.dimension = dimension
 
+    def pin_memory(self):
+        for cochain in self.cochains.values():
+            cochain.pin_memory()
+
     @classmethod
     def from_complex_list(cls, data_list: List[SimplicialComplex], max_dim: int = 2):
         """Constructs a ComplexBatch from a list of complexes.

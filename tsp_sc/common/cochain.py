@@ -64,6 +64,16 @@ class Cochain:
 
             assert self.laplacian.shape[0] == self.num_simplices
 
+    def pin_memory(self):
+        for key, attr in self.__dict__.items():
+            if (
+                attr is not None
+                and hasattr(attr, "pin_memory")
+                and key[:2] != "__"
+                and key[-2:] != "__"
+            ):
+                attr.pin_memory()
+
     def get_irrotational_component(self):
         if self.dim == self.complex_dim:
             return None

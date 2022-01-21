@@ -37,4 +37,4 @@ models:
     dim_aggregation: sum
     sched_step_size: 10
     sched_gamma: 0.9
-    reduction: sum
+    reduction: mean

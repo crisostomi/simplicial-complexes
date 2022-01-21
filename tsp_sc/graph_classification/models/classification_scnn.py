@@ -309,13 +309,13 @@ class ClassificationSCNN(pl.LightningModule):
 
         return out
 
-    def validation_epoch_end(self, outputs):
-        losses = [output["val/loss"] for output in outputs]
-        num_samples = sum([output["preds"].shape[0] for output in outputs])
-        loss_sum = sum(losses)
-        loss_mean = loss_sum / num_samples
-
-        self.log("val/loss_epoch_mean", loss_mean, on_epoch=True)
+    # def validation_epoch_end(self, outputs):
+    #     losses = [output["val/loss"] for output in outputs]
+    #     num_samples = sum([output["preds"].shape[0] for output in outputs])
+    #     loss_sum = sum(losses)
+    #     loss_mean = loss_sum / num_samples
+    #
+    #     self.log("val/loss_epoch_mean", loss_mean, on_epoch=True)
 
     def jump_complex(self, jump_xs):
         """

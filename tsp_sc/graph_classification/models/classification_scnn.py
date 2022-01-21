@@ -325,7 +325,7 @@ class ClassificationSCNN(pl.LightningModule):
 
         labels = batch.get_labels()
 
-        loss = nn.CrossEntropyLoss()(preds, labels)
+        loss = self.cross_entropy(preds, labels)
 
         self.log("loss", loss, on_epoch=True, on_step=True, prog_bar=True)
 
@@ -336,7 +336,7 @@ class ClassificationSCNN(pl.LightningModule):
 
         labels = batch.get_labels()
 
-        loss = nn.CrossEntropyLoss()(preds, labels)
+        loss = self.cross_entropy(preds, labels)
 
         self.log("val/loss", loss, on_epoch=True, on_step=True, prog_bar=True)
 

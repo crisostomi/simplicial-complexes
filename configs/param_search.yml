@@ -5,9 +5,10 @@ command:
   - ${program}
   - --config=configs/search_start.yml
 
-method: bayes
+method: grid
 
 project: TSP-SC-param-search
+entity: gladia
 
 metric:
   name: val/loss_epoch

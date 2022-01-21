@@ -23,7 +23,7 @@ wandb.login()
 
 config = load_config(cli_args.config)
 
-wandb.init(config=config)
+wandb.init(config=config, entity="gladia")
 
 fix_dict_in_config(wandb)
 
@@ -33,8 +33,6 @@ path_params, data_params, run_params, model_params = (
     wandb.config["run_params"],
     wandb.config["models"],
 )
-
-assert data_params["considered_simplex_dim"] <= data_params["max_simplex_dim"]
 
 device = "cuda" if torch.cuda.is_available else "cpu"
 paths = get_paths(path_params, data_params)
@@ -60,7 +58,9 @@ early_stopping_callback = EarlyStopping(
 
 run_config = get_run_config(model_name, wandb.config)
 
-wandb_logger = WandbLogger(name=model_name, project="TSP-SC", config=run_config)
+wandb_logger = WandbLogger(
+    name=model_name, entity="gladia", project="TSP-SC", config=run_config
+)
 wandb.define_metric("val/acc", summary="max", goal="max", step_metric="epoch")
 wandb.define_metric("val/loss", summary="min", goal="min", step_metric="epoch")
 

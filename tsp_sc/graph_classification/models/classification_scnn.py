@@ -132,6 +132,7 @@ class ClassificationSCNN(pl.LightningModule):
 
         self.final_lin2 = nn.Linear(self.hidden_size, self.num_classes)
 
+        self.cross_entropy = nn.CrossEntropyLoss(reduction=params["reduction"])
         self.pooling_fn = get_pooling_fn(self.readout)
 
     def forward(self, inputs, components, batch):

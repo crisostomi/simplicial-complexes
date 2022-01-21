@@ -6,10 +6,14 @@ from tsp_sc.common.io import *
 from tsp_sc.common.misc import *
 from tsp_sc.graph_classification.utils import get_paths
 from tsp_sc.graph_classification.data.datamodule import GraphClassificationDataModule
-from pytorch_lightning import Trainer
+from pytorch_lightning import Trainer, seed_everything
 from tsp_sc.graph_classification.utils import get_model, load_dataset
 import wandb
+
 from tsp_sc.citations.utils.utils import fix_dict_in_config
+
+seed_everything(seed=42)
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--config")

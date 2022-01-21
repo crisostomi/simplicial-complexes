@@ -138,12 +138,12 @@ class DeffSimplicialConvolution(nn.Module):
     @staticmethod
     def assemble(filter_size: int, L: torch.tensor, x: torch.tensor) -> torch.tensor:
         """
-    Preparates the Chebyshev polynomials
-    parameters:
-        filter_size: filter size
-        L: Laplacian, which can be full, lower (solenoidal) or upper (irrotational) (num_simplices, num_simplices)
-        x: input (batch_size, C_in, num_simplices)
-    """
+        Preparates the Chebyshev polynomials
+        parameters:
+            filter_size: filter size
+            L: Laplacian, which can be full, lower (solenoidal) or upper (irrotational) (num_simplices, num_simplices)
+            x: input (batch_size, C_in, num_simplices)
+        """
 
         (C_in, num_simplices) = x.shape
 

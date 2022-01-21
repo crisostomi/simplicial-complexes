@@ -23,17 +23,18 @@ run_params:
 models:
   classification_scnn:
     filter_size: 3
-    num_layers: 3
+    num_layers: 2
     colors: 3
     aggregation: MLP # possible values: 'sum', 'MLP'
     component_to_use: both # possible values: 'both', 'sol', 'irr'
     keep_separated: false
-    readout: sum
+    readout: mean
     global_nonlinearity: relu
     hidden_size: 64
-    dropout_rate: 0.2
+    dropout_rate: 0.5
     jump_mode: cat
     learning_rate: 0.001
     dim_aggregation: sum
-    sched_step_size: 3
+    sched_step_size: 10
     sched_gamma: 0.9
+    reduction: sum

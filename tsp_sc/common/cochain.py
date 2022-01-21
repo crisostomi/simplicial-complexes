@@ -171,7 +171,7 @@ class Cochain:
 
     @property
     def dim(self):
-        """Returns the dimension of the cells in this cochain.
+        """Returns the dimension of the simplices in this cochain.
 
         This field should not have a setter. The dimension of a cochain cannot be changed.
         """
@@ -215,31 +215,10 @@ class Cochain:
         Returns the dimension for which :obj:`value` of attribute
         :obj:`key` will get concatenated when creating batches.
         """
-        if key in ["laplacian", "boundary", "coboundary", "solenoidal", "irrotational"]:
+        if key in SPARSE_KEYS:
             return (0, 1)
         else:
             return 0
-
-    def __inc__(self, key, value):
-        """
-        Returns the incremental count to cumulatively increase the value
-        of the next attribute of :obj:`key` when creating batches.
-        """
-        if key in "boundary":
-            row_inc = self.num_simplices if self.num_simplices is not None else 0
-            col_inc = self.num_simplices_up if self.num_simplices_up is not None else 0
-            inc = [row_inc, col_inc]
-        elif key == "coboundary":
-            row_inc = self.num_simplices_up if self.num_simplices_up is not None else 0
-            col_inc = self.num_simplices if self.num_simplices is not None else 0
-            inc = [row_inc, col_inc]
-        elif key in ["laplacian", "solenoidal", "irrotational"]:
-            row_col_inc = self.num_simplices if self.num_simplices is not None else 0
-            inc = [row_col_inc, row_col_inc]
-        else:
-            inc = 0
-
-        return inc
 
     def __call__(self, *keys):
         """
@@ -396,7 +375,6 @@ class CochainBatch(Cochain):
         self.ptr = ptr
         self.__data_class__ = Cochain
         self.__slices__ = None
-        self.__cumsum__ = None
         self.__cat_dims__ = None
         self.__num_simplices_list__ = None
         self.__num_simplices_down_list__ = None
@@ -416,9 +394,6 @@ class CochainBatch(Cochain):
 
         batch = cls.initialize_batch(data_list, keys)
 
-        device = None
-
-        cumsum = Cochain.init_cochain_slices(keys)
         slices = Cochain.init_cochain_slices(keys)
 
         cat_dims = {}
@@ -430,19 +405,9 @@ class CochainBatch(Cochain):
         for i, data in enumerate(data_list):
 
             for key in keys:
-
                 item = data[key]
 
                 if item is not None:
-
-                    # increase values by `cumsum` value
-                    cum = cumsum[key][-1]
-
-                    if key in SPARSE_KEYS:
-                        pass
-
-                    elif isinstance(item, (int, float)):
-                        item = item + cum
 
                     # treat 0-dimensional tensors as 1-dimensional
                     if isinstance(item, Tensor) and item.dim() == 0:
@@ -450,20 +415,14 @@ class CochainBatch(Cochain):
 
                     batch[key].append(item)
 
-                    # gather the size of the `cat` dimension
-                    cat_dim = data.__cat_dim__(key, data[key])
+                    # gather the size of the 'cat' dimension
+                    cat_dim = data.__cat_dim__(key, item)
                     cat_dims[key] = cat_dim
-
                     size = 1
                     if torch.is_tensor(item):
                         size = Cochain.get_tensor_size(item, key, cat_dim)
 
                     slices[key].append(size + slices[key][-1])
-
-                inc = data.__inc__(key, item)
-                if isinstance(inc, (tuple, list)):
-                    inc = torch.tensor(inc)
-                cumsum[key].append(inc + cumsum[key][-1])
 
             num = data.__num_simplices__ if hasattr(data, "__num_simplices__") else None
             num_up = (
@@ -484,31 +443,21 @@ class CochainBatch(Cochain):
             num_simplices = data.num_simplices
 
             if num_simplices is not None:
-                item = torch.full((num_simplices,), i, dtype=torch.long, device=device)
-                batch.batch.append(item)
+                batch_assignment = cls.create_batch_assignment_vector(num_simplices, i)
+                batch.batch.append(batch_assignment)
                 batch.ptr.append(batch.ptr[-1] + num_simplices)
 
         batch.batch = None if len(batch.batch) == 0 else batch.batch
         batch.ptr = None if len(batch.ptr) == 1 else batch.ptr
-        batch.__cumsum__ = cumsum
+
         batch.__cat_dims__ = cat_dims
         batch.__num_simplices_list__ = num_simplices_list
         batch.__num_simplices_up_list__ = num_simplices_up_list
         batch.__num_simplices_down_list__ = num_simplices_down_list
 
-        # pack lists into tensors
         ref_data = data_list[0]
         for key in batch.keys:
-            items = batch[key]
-            item = items[0]
-            if isinstance(item, Tensor) and item.is_sparse or key in SPARSE_KEYS:
-                # laplacian, boundary, coboundary, solenoidal, irrotational
-                batch[key] = torch.block_diag(*items)
-            elif isinstance(item, Tensor):
-                # signal, batch, complex_dim
-                batch[key] = torch.cat(items, ref_data.__cat_dim__(key, item))
-            elif isinstance(item, (int, float)):
-                batch[key] = torch.tensor(items)
+            batch[key] = cls.pack_into_tensors(batch, key, ref_data)
 
         return batch
 
@@ -552,3 +501,21 @@ class CochainBatch(Cochain):
         cochain_batch["ptr"] = [0]
 
         return cochain_batch
+
+    @classmethod
+    def create_batch_assignment_vector(cls, num_simplices, batch_ind):
+        return torch.full((num_simplices,), batch_ind, dtype=torch.long)
+
+    @classmethod
+    def pack_into_tensors(cls, batch, key, ref_data):
+        items = batch[key]
+        item = items[0]
+        if isinstance(item, Tensor) and item.is_sparse or key in SPARSE_KEYS:
+            # laplacian, boundary, coboundary, solenoidal, irrotational
+            collated = torch.block_diag(*items)
+        elif isinstance(item, Tensor):
+            # signal, batch, complex_dim
+            collated = torch.cat(items, ref_data.__cat_dim__(key, item))
+        elif isinstance(item, (int, float)):
+            collated = torch.tensor(items)
+        return collated

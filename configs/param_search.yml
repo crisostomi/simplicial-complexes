@@ -21,6 +21,12 @@ parameters:
       - 3
       - 4
 
+  data.batch_size:
+    values:
+      - 16
+      - 64
+      - 128
+
   models.classification_scnn.dropout_rate:
     values:
       - 0
@@ -51,11 +57,6 @@ parameters:
     values:
       - sum
       - linear
-
-#  models.classification_scnn.jump_mode:
-#    values:
-#      - cat
-#      - null
 
   models.classification_scnn.readout:
     values:

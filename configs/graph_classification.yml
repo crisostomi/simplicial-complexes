@@ -22,8 +22,8 @@ run_params:
 
 models:
   classification_scnn:
-    filter_size: 2
-    num_layers: 3
+    filter_size: 3
+    num_layers: 2
     colors: 3
     aggregation: MLP # possible values: 'sum', 'MLP'
     component_to_use: both # possible values: 'both', 'sol', 'irr'
@@ -37,3 +37,4 @@ models:
     dim_aggregation: sum
     sched_step_size: 10
     sched_gamma: 0.9
+    reduction: sum

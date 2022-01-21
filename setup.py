@@ -17,5 +17,6 @@ setup(
         "scripts/citations/prepare_signals.py",
         "scripts/citations/create_synth_signal.py",
         "scripts/evaluate_graph_classification.py",
+        "scripts/prepare_spam.py",
     ],
 )

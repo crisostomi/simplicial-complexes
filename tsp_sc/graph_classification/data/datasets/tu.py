@@ -2,10 +2,8 @@ import os
 import torch
 import pickle
 import numpy as np
-from tsp_sc.graph_classification.data.tu_utils import (
-    load_data,
-    S2V_to_PyG,
-)
+
+from tsp_sc.graph_classification.data.tu_utils import load_data, get_label_dict
 from tsp_sc.common.preproc_utils import convert_graph_dataset_with_gudhi
 from tsp_sc.graph_classification.data.in_memory_dataset import InMemoryComplexDataset
 from tsp_sc.common.misc import Phases
@@ -23,13 +21,13 @@ class TUDataset(InMemoryComplexDataset):
         name,
         max_dim=2,
         num_classes=2,
-        degree_as_tag=False,
+        attr_to_consider="tag",
         init_method="sum",
         seed=0,
         fold=0,
     ):
         self.name = name
-        self.degree_as_tag = degree_as_tag
+        self.attr_to_consider = attr_to_consider
         self.root = root
         self.fold = fold
         self.seed = seed
@@ -80,18 +78,18 @@ class TUDataset(InMemoryComplexDataset):
     def raw_file_names(self):
         # The processed graph files are our raw files.
         # They are obtained when running the initial data conversion S2V_to_PyG.
-        return [
-            "{}_graph_list_degree_as_tag_{}.pkl".format(self.name, self.degree_as_tag)
-        ]
+        return [f"{self.name}_graph_list_{self.attr_to_consider}.pkl"]
 
     def download(self):
         # This will process the raw data into a list of PyG Data objs.
-        data, num_classes = load_data(self.raw_dir, self.name, self.degree_as_tag)
-        self._num_classes = num_classes
-        print("Converting graph data into PyG format...")
-        graph_list = [S2V_to_PyG(datum) for datum in data]
+        data_list = load_data(
+            self.raw_dir, self.name, attr_to_consider=self.attr_to_consider
+        )
+        label_dict = get_label_dict(data_list)
+        self._num_classes = len(label_dict)
+
         with open(self.raw_paths[0], "wb") as handle:
-            pickle.dump(graph_list, handle)
+            pickle.dump(data_list, handle)
 
     def process(self):
         with open(self.raw_paths[0], "rb") as handle:

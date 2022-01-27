@@ -1,6 +1,7 @@
 import argparse
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import EarlyStopping
+from pytorch_lightning.profiler import PyTorchProfiler
 
 from tsp_sc.common.io import *
 from tsp_sc.common.misc import *
@@ -64,6 +65,12 @@ wandb_logger = WandbLogger(
 wandb.define_metric("val/acc", summary="max", goal="max", step_metric="epoch")
 wandb.define_metric("val/loss", summary="min", goal="min", step_metric="epoch")
 
+# profiler = PyTorchProfiler(
+#     dirpath=path_params["profiling"],
+#     filename="profiler2",
+#     sort_by_key="cpu_time_total",
+# )
+
 trainer = Trainer(
     max_epochs=run_params["max_epochs"],
     min_epochs=run_params["min_epochs"],
@@ -71,6 +78,7 @@ trainer = Trainer(
     logger=wandb_logger,
     callbacks=[early_stopping_callback],
     log_every_n_steps=1,
+    # profiler=profiler,
 )
 
 

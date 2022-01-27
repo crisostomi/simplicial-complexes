@@ -7,6 +7,7 @@ import pytorch_lightning as pl
 from torch.nn import functional as F
 from tsp_sc.common.utils import get_pooling_fn, get_nonlinearity
 from torchmetrics import F1, Precision, Recall, Accuracy
+from tsp_sc.graph_classification.models.mlp import MLP
 
 
 class ClassificationSCNN(pl.LightningModule):
@@ -40,13 +41,14 @@ class ClassificationSCNN(pl.LightningModule):
         self.learning_rate = params["learning_rate"]
         self.sched_step_size = params["sched_step_size"]
         self.sched_gamma = params["sched_gamma"]
+        self.use_batch_norm = params["use_batch_norm"]
+        self.comp_aggr_MLP_layers = params["comp_aggr_MLP_layers"]
 
         self.num_layers = params["num_layers"]
         self.num_dims = 3
         self.dims = range(0, self.num_dims)
         self.comps = self.get_comps(self.num_dims)
         self.layers = range(0, self.num_layers)
-
         self.hidden_sizes = [self.hidden_size for i in range(self.num_layers, 0, -1)]
         variance = 0.01
 
@@ -87,8 +89,11 @@ class ClassificationSCNN(pl.LightningModule):
             {
                 f"d{dim}": nn.ModuleList(
                     [
-                        nn.Linear(
-                            2 * self.hidden_sizes[layer], self.hidden_sizes[layer],
+                        MLP(
+                            num_layers=self.comp_aggr_MLP_layers,
+                            input_dim=2 * self.hidden_sizes[layer],
+                            hidden_dim=2 * self.hidden_sizes[layer],
+                            output_dim=self.hidden_sizes[layer],
                         )
                         for layer in self.layers
                     ]
@@ -108,6 +113,8 @@ class ClassificationSCNN(pl.LightningModule):
 
         self.activ = nn.ModuleList([nn.PReLU() for layer in self.layers])
 
+        self.comp_aggr_activ = nn.ModuleList([nn.PReLU() for layer in self.layers])
+
         self.jump = (
             JumpingKnowledge(self.jump_mode) if self.jump_mode is not None else None
         )
@@ -126,9 +133,9 @@ class ClassificationSCNN(pl.LightningModule):
             else None
         )
 
-        self.final_lin1 = nn.Linear(
-            self.hidden_size * self.num_layers, self.hidden_size
-        )
+        self.dim_aggr_non_lin = nn.PReLU() if self.dim_aggregation == "linear" else None
+
+        self.final_lin1 = nn.Linear(pooled_hidden_dim, self.hidden_size)
 
         self.final_lin2 = nn.Linear(self.hidden_size, self.num_classes)
 
@@ -156,7 +163,7 @@ class ClassificationSCNN(pl.LightningModule):
         for layer in layers:
             for dim in dims:
                 prev_output = (
-                    inputs[dim]
+                    inputs[dim].transpose(1, 0)
                     if layer == 0
                     else self.activ[layer](outs[layer - 1][f"d{dim}"])
                 )
@@ -165,21 +172,17 @@ class ClassificationSCNN(pl.LightningModule):
                     for comp in comps[f"d{dim}"]
                 ]
 
-                # shape (hidden_dim, num_simplices_dim)
+                # shape (N=num_simplices_dim, C=hidden_dim)
                 aggregated = self.aggregate(comp_outputs, layer, dim)
-                aggregated = self.BN[f"d{dim}"][layer](aggregated.transpose(1, 0))
-                outs[layer][f"d{dim}"] = aggregated.transpose(1, 0)
+                if self.use_batch_norm:
+                    aggregated = self.batch_normalize(aggregated, dim, layer)
+                outs[layer][f"d{dim}"] = aggregated
 
             if self.jump_mode is not None:
                 if jump_xs is None:
                     jump_xs = {f"d{dim}": [] for dim in self.dims}
                 for (dim, out) in outs[layer].items():
-                    jump_xs[dim] += [out.transpose(1, 0)]
-
-        # refactor somehow
-        for layer in layers:
-            for dim in dims:
-                outs[layer][f"d{dim}"] = outs[layer][f"d{dim}"].transpose(1, 0)
+                    jump_xs[dim] += [out]
 
         cochain_outputs = [
             outs[last_layer][f"d{i}"] for i in range(batch.dimension + 1)
@@ -223,11 +226,25 @@ class ClassificationSCNN(pl.LightningModule):
             xs = xs.reshape((batch_size, -1))
             # (batch_size, hidden_dim)
             out = self.linear_dim_aggregation(xs)
+            out = self.dim_aggr_non_lin(out)
             return out
         else:
             raise NotImplementedError(
                 f"Aggregation: {self.dim_aggregation} not supported."
             )
+
+    def batch_normalize(self, input, dim, layer):
+        """
+        :param input: shape (N=num_simplices_dim, C=hidden_size)
+        :param dim: dimension of the simplices
+        :param layer: layer number in the network
+        :return: output shape (hidden_size, num_simplices_dim)
+        """
+        assert input.shape[1] == self.hidden_size
+
+        output = self.BN[f"d{dim}"][layer](input)
+
+        return output
 
     @staticmethod
     def get_comps(max_dim):
@@ -248,16 +265,24 @@ class ClassificationSCNN(pl.LightningModule):
         Convolves input using the given component
 
         parameters:
-            input: input signal to convolve
+            input: shape (N=num_simplices_dim, C=num_features) input signal to convolve
             components: dict of lists, keys: 'full' for the Laplacian, 'sol' for the solenoidal and 'irr' for irrotational component
                         for each component, there is a list of length self.dims containing for each dimension the component for that dimension
             layer: int, number of the layer
             dim: int, dimension of the simplices being considered
             component: string, 'full', 'sol' or 'irr'
     """
+        C = self.feature_dim[dim] if layer == 0 else self.hidden_size
+        assert input.shape[1] == C
+
         convolution = self.C[f"d{dim}"][layer][component]
-        # print(dim, component, layer)
-        return convolution(components[component][dim], input)
+
+        # convolution expects input of shape (C, N)
+        input = input.transpose(1, 0)
+        output = convolution(components[component][dim], input)
+
+        output = output.transpose(1, 0)
+        return output
 
     def merge_components(self, outs):
         """
@@ -288,34 +313,16 @@ class ClassificationSCNN(pl.LightningModule):
         if the output is from a single component (e.g. from the irrotational components for nodes), then it just returns it
         otherwise, depending on self.aggregation either aggregates by summing or by using a MLP
         """
-
         if len(components_outputs) == 1:
             return components_outputs[0]
 
         # aggregation via MLP
         else:
-
-            (c_out, num_simplices) = components_outputs[0].shape
-
-            reshaped_outs = [
-                out.reshape(num_simplices, c_out) for out in components_outputs
-            ]
-
-            out_concat = torch.cat(reshaped_outs, 1)
-
-            out = self.L[f"d{dim}"][layer](out_concat)
-
-            out = out.reshape(c_out, num_simplices)
+            linear_layer = self.L[f"d{dim}"][layer]
+            out_concat = torch.cat(components_outputs, 1)
+            out = linear_layer(out_concat)
 
         return out
-
-    # def validation_epoch_end(self, outputs):
-    #     losses = [output["val/loss"] for output in outputs]
-    #     num_samples = sum([output["preds"].shape[0] for output in outputs])
-    #     loss_sum = sum(losses)
-    #     loss_mean = loss_sum / num_samples
-    #
-    #     self.log("val/loss_epoch_mean", loss_mean, on_epoch=True)
 
     def jump_complex(self, jump_xs):
         """
@@ -404,21 +411,26 @@ class ClassificationSCNN(pl.LightningModule):
     def pool_complex(self, xs, batch):
         """
 
-        :param xs: list (num_dims) where each item is a tensor (hidden_size, num_complexes_dim)
-                    if jump_mode is not cat, else (num_layers * hidden_size, num_complexes_dim)
+        :param xs: list (num_dims) where each item is a tensor (N=num_simplexes_dim, C=hidden_size)
+                    if jump_mode is not cat, else (num_simplexes_dim, num_layers * hidden_size)
         :return: pooled complex (num_dims, batch_size, hidden_size)
-
         """
+        feature_dim = (
+            self.hidden_size
+            if self.jump_mode != "cat"
+            else self.num_layers * self.hidden_size
+        )
+
+        assert xs[0].shape[1] == feature_dim
 
         num_dims = len(xs)
-
-        # each x has shape (hidden_dim, num_simplices_dim)
+        # each x has shape (num_simplexes_dim, hidden_size)
 
         batch_size = batch.cochains[0].batch.max() + 1
 
         # output is of shape [num_dims, batch_size, feature_dim]
         pooled_xs = torch.zeros(
-            self.num_dims, batch_size, xs[0].size(-1), device=batch_size.device
+            self.num_dims, batch_size, feature_dim, device=batch_size.device
         )
 
         for dim in range(num_dims):

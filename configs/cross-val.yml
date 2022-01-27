@@ -8,6 +8,7 @@ command:
 method: grid
 
 project: TSP-SC-cross-validation
+entity: gladia
 
 metric:
   name: val/loss

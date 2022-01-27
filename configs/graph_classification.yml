@@ -1,22 +1,24 @@
 paths:
   data: data/graph-classification
   raw: data/graph-classification/raw
+  profiling: logs/
 
 data:
   max_simplex_dim: 2
   considered_simplex_dim: 2
   batch_size: 16
-  dataset: PROTEINS
+  dataset: IMDBBINARY
   fold: 0
   num_folds: 10
   init_method: mean
+  node_features: degree # possible values: degree, tag, tag_and_degree
 
 run_params:
   max_epochs: 100
-  min_epochs: 10
+  min_epochs: 50
   gpus:
     - 0
-  random_state: 1337
+  random_state: 42
   min_delta: 0
   patience: 10
 
@@ -25,16 +27,18 @@ models:
     filter_size: 3
     num_layers: 2
     colors: 3
-    aggregation: MLP # possible values: 'sum', 'MLP'
+    aggregation: MLP # possible values: 'MLP'
     component_to_use: both # possible values: 'both', 'sol', 'irr'
     keep_separated: false
-    readout: mean
+    readout: sum
     global_nonlinearity: relu
-    hidden_size: 64
-    dropout_rate: 0.5
-    jump_mode: cat
+    hidden_size: 32
+    dropout_rate: 0
+    jump_mode: null
     learning_rate: 0.001
     dim_aggregation: sum
     sched_step_size: 10
     sched_gamma: 0.9
-    reduction: sum
+    reduction: mean
+    use_batch_norm: false
+    comp_aggr_MLP_layers: 2

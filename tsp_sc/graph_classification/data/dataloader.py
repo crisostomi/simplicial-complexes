@@ -25,6 +25,7 @@ class ComplexDataLoader(DataLoader):
             batch_size,
             shuffle,
             # pin_memory=True,
+            num_workers=12,
             collate_fn=Collater(max_dim),
             **kwargs
         )

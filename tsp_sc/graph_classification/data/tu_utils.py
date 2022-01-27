@@ -1,205 +1,212 @@
-"""
-Based on code from https://github.com/weihua916/powerful-gnns/blob/master/util.py
-
-MIT License
-
-Copyright (c) 2021 Weihua Hu
-Copyright (c) 2021 The CWN Project Authors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
-
 import networkx as nx
 import numpy as np
 import torch
 import torch_geometric
 from torch_geometric.data import Data
 from sklearn.model_selection import StratifiedKFold
+import os
+from typing import List
 
 
-class S2VGraph(object):
-    def __init__(self, g, label, node_tags=None, node_features=None):
-        """
-            g: a networkx graph
-            label: an integer graph label
-            node_tags: a list of integer node tags
-            node_features: a torch float tensor, one-hot representation of the tag that is used as input to neural nets
-            edge_mat: a torch long tensor, contain edge list, will be used to create torch sparse tensor
-            neighbors: list of neighbors (without self-loop)
-        """
-        self.label = label
-        self.g = g
-        self.node_tags = node_tags
-        self.neighbors = []
-        self.node_features = 0
-        self.edge_mat = 0
-
-        self.max_neighbor = 0
+class Node:
+    def __init__(self, tag, neighbors, attrs):
+        self.tag = tag
+        self.neighbors = neighbors
+        self.attrs = attrs
 
 
-def load_data(path, dataset, degree_as_tag):
+def load_data(dir_path, dataset_name, attr_to_consider):
     """
-        dataset: name of dataset
-        test_proportion: ratio of test train split
-        seed: random seed for random splitting of dataset
+    Loads a TU graph dataset.
+
+    :param dir_path: path to the directory containing the dataset
+    :param dataset_name: name of the dataset
+    :param degree_as_tag: whether to use node degree as tag
+    :return:
+    """
+    graph_list = load_graph_list(dir_path, dataset_name)
+
+    data_list = to_data_list(graph_list)
+
+    set_node_features(data_list, attr_to_consider=attr_to_consider)
+
+    return data_list
+
+
+def load_graph_list(dir_path, dataset_name):
+    """
+    Loads a graph dataset as a list of networkx graphs
+
+    :param dir_path: path to the directory containing the dataset
+    :param dataset_name: name of the dataset
+    :return: graph_list: list of networkx graphs
+    """
+    dataset_path = f"{os.path.join(dir_path, dataset_name)}.txt"
+
+    graph_list = []
+    with open(dataset_path, "r") as f:
+        num_graphs = int(f.readline().strip())
+
+        for graph_ind in range(num_graphs):
+
+            graph: nx.Graph = parse_graph(f)
+            graph_list.append(graph)
+
+    return graph_list
+
+
+def to_data_list(graph_list):
+    data_list = []
+    for G in graph_list:
+        edge_index = get_edge_index_from_nx(G)
+        data = Data(
+            edge_index=edge_index,
+            num_nodes=G.number_of_nodes(),
+            y=torch.tensor(G.graph["label"]).unsqueeze(0).long(),
+            degrees=get_degree_tensor_from_nx(G),
+            tags=get_tag_tensor_from_nx(G),
+        )
+        data_list.append(data)
+
+    return data_list
+
+
+def parse_graph(file_descriptor):
+    """
+    Parses a single graph from file
+    :param file_descriptor: file formatted accordingly to TU datasets
+    :return: networkx graph
     """
 
-    print("loading data")
-    g_list = []
+    graph_header = file_descriptor.readline().strip().split()
+    num_nodes, label = [int(w) for w in graph_header]
+
+    G = nx.Graph()
+    G.graph["label"] = label
+
+    for node_ind in range(num_nodes):
+
+        node: Node = parse_node(file_descriptor)
+
+        G.add_node(node_ind, tag=node.tag, attrs=node.attrs)
+
+        for neighbor in node.neighbors:
+            G.add_edge(node_ind, neighbor)
+            G.add_edge(neighbor, node_ind)
+
+    assert len(G) == num_nodes
+
+    return G
+
+
+def parse_node(file_descriptor):
+    """
+    Parses a single node from file, corresponding to a row having format
+        tag num_neighbors nghbr_1 nghbr_2 ... attr_1 attr_2 ...
+
+    :param file_descriptor: file formatted accordingly to TU datasets
+    :return: Node with tag, neighbors list and possibly attributes
+    """
+
+    node_row = file_descriptor.readline().strip().split()
+
+    node_header = node_row[0:2]
+    tag, num_neighbors = int(node_header[0]), int(node_header[1])
+
+    # attributes come after the header (tag and num_neighbors) and all the neighbors
+    attr_starting_index = 2 + num_neighbors
+
+    neighbors = [int(w) for w in node_row[2:attr_starting_index]]
+
+    attrs = [float(w) for w in node_row[attr_starting_index:]]
+    attrs = np.array(attrs) if attrs else None
+
+    return Node(tag, neighbors, attrs)
+
+
+def get_degree_tensor_from_nx(G: nx.Graph):
+    """
+    Returns node degrees as a list
+    :param G: networkx graph
+    :return: list of degrees
+    """
+    degree_list = sorted(list(G.degree()), key=lambda x: x[0])
+    return torch.tensor([pair[1] for pair in degree_list])
+
+
+def get_tag_tensor_from_nx(G: nx.Graph):
+    tag_dict = nx.get_node_attributes(G, "tag")
+    tag_tuples = [(key, value) for key, value in tag_dict.items()]
+    tag_tuples_sorted = sorted(tag_tuples, key=lambda t: t[0])
+    tags_sorted_by_node = [tup[1] for tup in tag_tuples_sorted]
+    return torch.tensor(tags_sorted_by_node)
+
+
+def set_node_features(data_list: List[Data], attr_to_consider):
+    """
+    Adds to each data in data_list either the tags, the degrees or both as node features
+    :param data_list:
+    :return:
+    """
+    assert attr_to_consider in {"tag", "degree", "both"}
+    one_hot_tags, one_hot_degrees = None, None
+    if attr_to_consider in {"tag", "both"}:
+        all_tags = torch.cat([data.tags for data in data_list], 0)
+        one_hot_tags = get_one_hot_attrs(all_tags, data_list)
+
+    elif attr_to_consider in {"degree", "both"}:
+        all_degrees = torch.cat([data.degrees for data in data_list], 0)
+        one_hot_degrees = get_one_hot_attrs(all_degrees, data_list)
+
+    if attr_to_consider == "both":
+        all_node_features = [
+            torch.cat((one_hot_tags[i], one_hot_degrees[i]), dim=1)
+            for i in range(len(data_list))
+        ]
+    else:
+        all_node_features = one_hot_tags if one_hot_tags else one_hot_degrees
+
+    for data, node_features in zip(data_list, all_node_features):
+        data["x"] = node_features
+
+
+def get_one_hot_attrs(attrs, data_list):
+    # compute unique values
+    unique_attrs, corrs = np.unique(attrs, return_inverse=True, axis=0)
+    num_different_attrs = len(unique_attrs)
+
+    # encode
+    pointer = 0
+    all_one_hot_attrs = []
+
+    for data in data_list:
+        hots = torch.LongTensor(corrs[pointer : pointer + data.num_nodes])
+        data_one_hot_attrs = torch.nn.functional.one_hot(
+            hots, num_different_attrs
+        ).float()
+
+        all_one_hot_attrs.append(data_one_hot_attrs)
+        pointer += data.num_nodes
+    return all_one_hot_attrs
+
+
+def get_edge_index_from_nx(G: nx.Graph):
+    """
+    Extracts edge index from networkx graph
+    :param G:
+    :return:
+    """
+    return torch.tensor(list(G.edges), dtype=torch.long).t().contiguous().view(2, -1)
+
+
+def get_label_dict(data_list):
     label_dict = {}
-    feat_dict = {}
+    for data in data_list:
+        label = data.y.item()
+        if label not in label_dict:
+            label_dict[label] = len(label_dict)
 
-    with open("%s/%s.txt" % (path, dataset), "r") as f:
-        n_g = int(f.readline().strip())
-        for i in range(n_g):
-            row = f.readline().strip().split()
-            n, l = [int(w) for w in row]
-            if not l in label_dict:
-                mapped = len(label_dict)
-                label_dict[l] = mapped
-            g = nx.Graph()
-            node_tags = []
-            node_features = []
-            n_edges = 0
-            for j in range(n):
-                g.add_node(j)
-                row = f.readline().strip().split()
-                tmp = int(row[1]) + 2
-                if tmp == len(row):
-                    # no node attributes
-                    row = [int(w) for w in row]
-                    attr = None
-                else:
-                    row, attr = (
-                        [int(w) for w in row[:tmp]],
-                        np.array([float(w) for w in row[tmp:]]),
-                    )
-                if not row[0] in feat_dict:
-                    mapped = len(feat_dict)
-                    feat_dict[row[0]] = mapped
-                node_tags.append(feat_dict[row[0]])
-
-                if tmp > len(row):
-                    node_features.append(attr)
-
-                n_edges += row[1]
-                for k in range(2, len(row)):
-                    g.add_edge(j, row[k])
-
-            if node_features != []:
-                node_features = np.stack(node_features)
-                node_feature_flag = True
-            else:
-                node_features = None
-                node_feature_flag = False
-
-            assert len(g) == n
-
-            g_list.append(S2VGraph(g, l, node_tags))
-
-    # add labels and edge_mat
-    for g in g_list:
-        g.neighbors = [[] for i in range(len(g.g))]
-        for i, j in g.g.edges():
-            g.neighbors[i].append(j)
-            g.neighbors[j].append(i)
-        degree_list = []
-        for i in range(len(g.g)):
-            g.neighbors[i] = g.neighbors[i]
-            degree_list.append(len(g.neighbors[i]))
-        g.max_neighbor = max(degree_list)
-
-        g.label = label_dict[g.label]
-
-        edges = [list(pair) for pair in g.g.edges()]
-        edges.extend([[i, j] for j, i in edges])
-
-        deg_list = list(
-            dict(g.g.degree(range(len(g.g)))).values()
-        )  # <- this might not be used...!?
-        g.edge_mat = torch.LongTensor(edges).transpose(0, 1)
-
-    if degree_as_tag:
-        for g in g_list:
-            g.node_tags = list(dict(g.g.degree).values())
-            # ^^^ !? it should probably be replaced by the following one:
-            # g.node_tags = [g.g.degree[node] for node in range(len(g.g))]
-
-    # Extracting unique tag labels
-    tagset = set([])
-    for g in g_list:
-        tagset = tagset.union(set(g.node_tags))
-
-    tagset = list(tagset)
-    tag2index = {tagset[i]: i for i in range(len(tagset))}
-
-    for g in g_list:
-        g.node_features = torch.zeros(len(g.node_tags), len(tagset))
-        g.node_features[
-            range(len(g.node_tags)), [tag2index[tag] for tag in g.node_tags]
-        ] = 1
-
-    # ==================
-    # Here we recompute degree encodings with external code,
-    # as we observed some unexpected behaviors likely due to
-    # incompatibilities w.r.t.  python versions
-    # ==================
-    def get_node_degrees(graph):
-        edge_index = graph.edge_mat
-        if edge_index.shape[1] == 0:  # just isolated nodes
-            degrees = torch.zeros((graph.node_features.shape[0], 1))
-        else:
-            degrees = torch_geometric.utils.degree(edge_index[0]).unsqueeze(1)
-        return degrees
-
-    if degree_as_tag:
-        # 1. cumulate node degrees
-        degs = torch.cat([get_node_degrees(graph) for graph in g_list], 0)
-        # 2. compute unique values
-        uniques, corrs = np.unique(degs, return_inverse=True, axis=0)
-        # 3. encode
-        pointer = 0
-        for graph in g_list:
-            n = graph.node_features.shape[0]
-            hots = torch.LongTensor(corrs[pointer : pointer + n])
-            graph.node_features = torch.nn.functional.one_hot(
-                hots, len(uniques)
-            ).float()
-            pointer += n
-    # ====================
-
-    print("# classes: %d" % len(label_dict))
-    print("# maximum node tag: %d" % len(tagset))
-
-    print("# data: %d" % len(g_list))
-
-    return g_list, len(label_dict)
-
-
-def S2V_to_PyG(data):
-    new_data = Data()
-    setattr(new_data, "edge_index", data.edge_mat)
-    setattr(new_data, "x", data.node_features)
-    setattr(new_data, "num_nodes", data.node_features.shape[0])
-    setattr(new_data, "y", torch.tensor(data.label).unsqueeze(0).long())
-
-    return new_data
+    return label_dict
 
 
 def get_fold_indices(complex_list, seed, fold_idx):

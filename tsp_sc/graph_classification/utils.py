@@ -46,14 +46,14 @@ def load_dataset(name, root, max_dim=2, init_method="sum", fold=None) -> Complex
         "REDDITMULTI5K": 5,
     }
 
-    degree_as_tag = True if name in {"IMDBBINARY", "IMDBMULTI"} else False
+    attr_to_consider = "degree" if name in {"IMDBBINARY", "IMDBMULTI"} else "tag"
 
     dataset = TUDataset(
         os.path.join(root, name),
         name,
         max_dim=max_dim,
         num_classes=num_classes[name],
-        degree_as_tag=degree_as_tag,
+        attr_to_consider=attr_to_consider,
         init_method=init_method,
         fold=fold,
     )
